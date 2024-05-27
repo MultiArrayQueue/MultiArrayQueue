@@ -9,7 +9,7 @@ but only the first one (with initialCapacity) is allocated up-front.
 A detailed description is given in [Paper](https://MultiArrayQueue.github.io/Paper_MultiArrayQueue.pdf).
 Performance figures are in the Paper as well.
 
-![Diagram_MultiArrayQueue](https://MultiArrayQueue.github.io/Diagram_MultiArrayQueue.png)
+<img src="https://MultiArrayQueue.github.io/Diagram_MultiArrayQueue.png" height="600">
 
 ### Interactive Simulator
 
