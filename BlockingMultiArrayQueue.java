@@ -373,7 +373,7 @@ public class BlockingMultiArrayQueue<T>
                     else  // wait maximum nanoseconds
                     {
                         waitNanos = notFull.awaitNanos(waitNanos);
-                        if (waitNanos <= 0L) return false;
+                        if (waitNanos < 0L) waitNanos = 0L;
                     }
                 }
                 else
@@ -462,7 +462,7 @@ public class BlockingMultiArrayQueue<T>
                     else  // wait maximum nanoseconds
                     {
                         waitNanos = notEmpty.awaitNanos(waitNanos);
-                        if (waitNanos <= 0L) return null;
+                        if (waitNanos < 0L) waitNanos = 0L;
                     }
                 }
                 else
