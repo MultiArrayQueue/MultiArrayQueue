@@ -11,7 +11,7 @@ Performance figures are in the Paper as well.
 
 <img src="https://MultiArrayQueue.github.io/Diagram_MultiArrayQueue.png" height="600">
 
-### Interactive Simulator
+## Interactive Simulator
 
 [Get acquainted with the new Queue here](https://MultiArrayQueue.github.io/Simulator_MultiArrayQueue.html)
 
@@ -23,5 +23,5 @@ Performance figures are in the Paper as well.
 
 ## License
 
-MIT License (applies to the program codes only, not to the Paper)
+MIT License
 
