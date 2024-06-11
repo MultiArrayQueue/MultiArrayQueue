@@ -86,7 +86,8 @@ public class BlockingMultiArrayQueue<T>
     // Interpretation of readerPosition: The last position read.
     //
     // The Queue is empty if the reader stands on the same position as the writer.
-    // The Queue is full if the writer stands immediately behind the reader (that is in the previous round).
+    // The Queue is full if the writer stands immediately behind the reader (that is in the previous round)
+    // and the Queue cannot extend anymore.
     //
     // This implies that the Queue can take at most one less Objects than there are positions in the array(s).
     // This is a traditional way of implementing ring-buffers and it leads to a simpler and faster code
@@ -94,7 +95,7 @@ public class BlockingMultiArrayQueue<T>
     //
     // When the writerPosition/readerPosition stands on a diversion then it means that the writer/reader
     // is on the return path of that diversion (also not on its entry side!).
-    // (The edge case rings[0][0] where firstArraySize == 1 obeys to that rule as well: the next move would
+    // (The edge case rings[0][0] where firstArraySize == 1 obeys that rule as well: the next move would
     // go "beyond array size", also: move to begin of rings[0] (i.e. to the same position rings[0][0])
     // which is then the entry side of the diversion from rings[0] that will be immediately followed forward.)
     //
@@ -137,7 +138,7 @@ public class BlockingMultiArrayQueue<T>
 
     /**
      * Creates a BlockingMultiArrayQueue with the given name, given capacity of the first array of Objects,
-     * a limit of how many times the Queue is allowed to extend and fair ordering policy.
+     * a limit of how many times the Queue is allowed to extend and the given decision about fair ordering policy.
      *
      * <p>The input parameters allow for the following three modes:
      * <ul>
@@ -260,7 +261,7 @@ public class BlockingMultiArrayQueue<T>
                 for (;;)
                 {
                     writerPos ++;  // prospective move forward (the increment never overflows into the rix due to the reserve)
-                    writerRix = (int) ((writerPos & 0x0000_000F_8000_0000L) >> 31);
+                    writerRix = (int) ((writerPos & 0x0000_000F_8000_0000L) >>> 31);
                     writerIx  = (int)  (writerPos & 0x0000_0000_7FFF_FFFFL);
 
                     // if the prospective move goes "beyond" the end of rings[writerRix]
@@ -276,7 +277,7 @@ public class BlockingMultiArrayQueue<T>
                         else  // i.e. we are in a "higher" rings[N]
                         {
                             writerPos = diversions[writerRix - 1];  // follow diversion[N-1] back
-                            writerRix = (int) ((writerPos & 0x0000_000F_8000_0000L) >> 31);
+                            writerRix = (int) ((writerPos & 0x0000_000F_8000_0000L) >>> 31);
                             writerIx  = (int)  (writerPos & 0x0000_0000_7FFF_FFFFL);
 
                             // if the prospective move has hit the reader (that is in the previous round) "from behind"
@@ -353,7 +354,7 @@ public class BlockingMultiArrayQueue<T>
                                 }
                                 break test_next;
                             }
-                            testNextWriterRix = (int) ((testNextWriterPos & 0x0000_000F_8000_0000L) >> 31);
+                            testNextWriterRix = (int) ((testNextWriterPos & 0x0000_000F_8000_0000L) >>> 31);
                             testNextWriterIx  = (int)  (testNextWriterPos & 0x0000_0000_7FFF_FFFFL);
                         }
                     }
@@ -479,7 +480,7 @@ public class BlockingMultiArrayQueue<T>
             for (;;)
             {
                 readerPos ++;  // prospective move forward (the increment never overflows into the rix due to the reserve)
-                readerRix = (int) ((readerPos & 0x0000_000F_8000_0000L) >> 31);
+                readerRix = (int) ((readerPos & 0x0000_000F_8000_0000L) >>> 31);
                 readerIx  = (int)  (readerPos & 0x0000_0000_7FFF_FFFFL);
 
                 // if the prospective move goes "beyond" the end of rings[readerRix]
@@ -495,7 +496,7 @@ public class BlockingMultiArrayQueue<T>
                     else  // i.e. we are in a "higher" rings[N]
                     {
                         readerPos = diversions[readerRix - 1];  // follow diversion[N-1] back
-                        readerRix = (int) ((readerPos & 0x0000_000F_8000_0000L) >> 31);
+                        readerRix = (int) ((readerPos & 0x0000_000F_8000_0000L) >>> 31);
                         readerIx  = (int)  (readerPos & 0x0000_0000_7FFF_FFFFL);
                         break go_forward;  // the prospective move forward is done, we are on the return path of a diversion
                     }

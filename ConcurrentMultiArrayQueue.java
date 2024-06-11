@@ -95,7 +95,8 @@ public class ConcurrentMultiArrayQueue<T>
     // If successful, it then reads and removes the Object from this new reader position.
     //
     // The Queue is empty if the reader stands on the same position as the writer.
-    // The Queue is full if the writer stands immediately behind the reader (that is in the previous round).
+    // The Queue is full if the writer stands immediately behind the reader (that is in the previous round)
+    // and the Queue cannot extend anymore.
     //
     // This implies that the Queue can take at most one less Objects than there are positions in the array(s).
     // This is a traditional way of implementing ring-buffers and it leads to a simpler and faster code
@@ -103,7 +104,7 @@ public class ConcurrentMultiArrayQueue<T>
     //
     // When the writerPosition/readerPosition stands on a diversion then it means that the writer/reader
     // is on the return path of that diversion (also not on its entry side!).
-    // (The edge case rings[0][0] where firstArraySize == 1 obeys to that rule as well: the next move would
+    // (The edge case rings[0][0] where firstArraySize == 1 obeys that rule as well: the next move would
     // go "beyond array size", also: move to begin of rings[0] (i.e. to the same position rings[0][0])
     // which is then the entry side of the diversion from rings[0] that will be immediately followed forward.)
     //
@@ -259,7 +260,7 @@ public class ConcurrentMultiArrayQueue<T>
             //
             // do not go ahead with the extension-in-progress flag, because origWriter == the expected value in the CAS
             // (so wait for the other writer to finish the extension (or fail))
-            if (0 != (origWriter & 0x0000_0010_0000_0000L))
+            if (0L != (origWriter & 0x0000_0010_0000_0000L))
             {
                 Thread.yield();  // the other writer is in spot C, so give him time
                 continue start_anew;
@@ -287,7 +288,7 @@ public class ConcurrentMultiArrayQueue<T>
             //
             // writerPosition --> (time lag) --> readerPosition --> (preparation phase) --> CASes
             // ----------------------------------------------------------------------------------
-            // we see a readerPosition that is newer (or same) than it was at the instant when we have read the writerPosition
+            // we see a readerPosition that is newer (or the same) than it was at the instant when we have read the writerPosition
             //
             // during the time lag the readerPosition might have moved forward and might even have overtaken "our" origWriter
             // in the next round (in which case the writerPosition must have moved too, so the CASes would fail (good!))
@@ -311,7 +312,7 @@ public class ConcurrentMultiArrayQueue<T>
             //
             // what if an eventual later writer created a diversion during the preparation phase (i.e. we DO NOT see
             // the incremented ringsMaxIndex):
-            // - we WILL NOT use that diversion while going forward, so caution:
+            // - we WILL NOT use that diversion while moving forward, so caution:
             // - because writerPosition must have moved forward in that case, our CASes would fail (good!)
             // - because an extension was created AFTER we have read ringsMaxIndex, we MUST have isQueueExtensionPossible true,
             //   so when we hit the reader "from behind" (possibly falsely due to not seeing a diversion) we will always attempt
@@ -349,7 +350,7 @@ public class ConcurrentMultiArrayQueue<T>
             for (;;)
             {
                 writerPos ++;  // prospective move forward (the increment never overflows into the rix due to the reserve)
-                writerRix = (int) ((writerPos & 0x0000_000F_8000_0000L) >> 31);
+                writerRix = (int) ((writerPos & 0x0000_000F_8000_0000L) >>> 31);
                 writerIx  = (int)  (writerPos & 0x0000_0000_7FFF_FFFFL);
 
                 // if the prospective move goes "beyond" the end of rings[writerRix]
@@ -366,7 +367,7 @@ public class ConcurrentMultiArrayQueue<T>
                     else  // i.e. we are in a "higher" rings[N]
                     {
                         writerPos = diversions[writerRix - 1];  // follow diversion[N-1] back
-                        writerRix = (int) ((writerPos & 0x0000_000F_8000_0000L) >> 31);
+                        writerRix = (int) ((writerPos & 0x0000_000F_8000_0000L) >>> 31);
                         writerIx  = (int)  (writerPos & 0x0000_0000_7FFF_FFFFL);
 
                         if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
@@ -448,7 +449,7 @@ public class ConcurrentMultiArrayQueue<T>
                                 }
                                 break test_next;
                             }
-                            testNextWriterRix = (int) ((testNextWriterPos & 0x0000_000F_8000_0000L) >> 31);
+                            testNextWriterRix = (int) ((testNextWriterPos & 0x0000_000F_8000_0000L) >>> 31);
                             testNextWriterIx  = (int)  (testNextWriterPos & 0x0000_0000_7FFF_FFFFL);
                         }
                     }
@@ -528,7 +529,7 @@ public class ConcurrentMultiArrayQueue<T>
                 }
                 else
                 {
-                    continue start_anew;  // CAS failed, start anew
+                    continue start_anew;  // CAS failed (i.e. lost the race against other writers) --> Start anew
                 }
             }
             else  // no extendQueue
@@ -543,14 +544,16 @@ public class ConcurrentMultiArrayQueue<T>
                 // so we would wait forever
                 //
                 // (if writerPosition has moved, the CAS would fail anyway)
+                //
+                // the optimal order of the two tests has been found by measurements (i.e. is not a dogma)
 
                 Object[] array = null;
 
                 wait_pos_cleared:
                 for (;;)
                 {
-                    if (origWriter != writerPosition.get()) continue start_anew;
-                    if (null == array) array = rings[writerRix];  // set array
+                    if (origWriter != writerPosition.get()) continue start_anew;  // (volatile read)
+                    if (null == array) array = rings[writerRix];  // set array if not yet set
                     if (null == array[writerIx]) break wait_pos_cleared;  // position is cleared, go ahead
                     Thread.yield();  // here it is very probable that the reader is in spot B, so give him time
                 }
@@ -569,7 +572,7 @@ public class ConcurrentMultiArrayQueue<T>
                 }
                 else
                 {
-                    continue start_anew;  // CAS failed, start anew
+                    continue start_anew;  // CAS failed (i.e. lost the race against other writers) --> Start anew
                 }
             }
         }
@@ -618,7 +621,7 @@ public class ConcurrentMultiArrayQueue<T>
             //
             // readerPosition --> (time lag) --> writerPosition --> (preparation phase) --> CAS
             // --------------------------------------------------------------------------------
-            // we see a writerPosition that is newer (or same) than it was at the instant when we have read the readerPosition
+            // we see a writerPosition that is newer (or the same) than it was at the instant when we have read the readerPosition
             //
             // during the time lag the writerPosition might have moved forward and might even have caught "our" origReader
             // in the next round (in which case the readerPosition must have moved too, so the CAS would fail (good!))
@@ -654,7 +657,7 @@ public class ConcurrentMultiArrayQueue<T>
             for (;;)
             {
                 readerPos ++;  // prospective move forward (the increment never overflows into the rix due to the reserve)
-                readerRix = (int) ((readerPos & 0x0000_000F_8000_0000L) >> 31);
+                readerRix = (int) ((readerPos & 0x0000_000F_8000_0000L) >>> 31);
                 readerIx  = (int)  (readerPos & 0x0000_0000_7FFF_FFFFL);
 
                 // if the prospective move goes "beyond" the end of rings[readerRix]
@@ -671,7 +674,7 @@ public class ConcurrentMultiArrayQueue<T>
                     else  // i.e. we are in a "higher" rings[N]
                     {
                         readerPos = diversions[readerRix - 1];  // follow diversion[N-1] back
-                        readerRix = (int) ((readerPos & 0x0000_000F_8000_0000L) >> 31);
+                        readerRix = (int) ((readerPos & 0x0000_000F_8000_0000L) >>> 31);
                         readerIx  = (int)  (readerPos & 0x0000_0000_7FFF_FFFFL);
                         break go_forward;  // the prospective move forward is done, we are on the return path of a diversion
                     }
@@ -706,6 +709,8 @@ public class ConcurrentMultiArrayQueue<T>
             // so we would wait forever
             //
             // (if readerPosition has moved, the CAS would fail anyway)
+            //
+            // the optimal order of the two tests has been found by measurements (i.e. is not a dogma)
 
             Object[] array = null;
             Object object;
@@ -713,8 +718,8 @@ public class ConcurrentMultiArrayQueue<T>
             wait_pos_filled:
             for (;;)
             {
-                if (origReader != readerPosition.get()) continue start_anew;
-                if (null == array) array = rings[readerRix];  // set array
+                if (origReader != readerPosition.get()) continue start_anew;  // (volatile read)
+                if (null == array) array = rings[readerRix];  // set array if not yet set
                 if (null != (object = array[readerIx])) break wait_pos_filled;  // position is filled, go ahead
                 Thread.yield();  // here it is very probable that the writer is in spot A, so give him time
             }
@@ -733,7 +738,7 @@ public class ConcurrentMultiArrayQueue<T>
             }
             else
             {
-                continue start_anew;  // CAS failed, start anew
+                continue start_anew;  // CAS failed (i.e. lost the race against other readers) --> Start anew
             }
         }
     }
