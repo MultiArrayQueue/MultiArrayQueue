@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2024 VÌt Proch·zka
+Copyright (c) 2024 V√≠t Proch√°zka
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -57,7 +57,7 @@ import java.util.concurrent.locks.Condition;
  * <p>GitHub Repository:
  * <a href="https://github.com/MultiArrayQueue/MultiArrayQueue">https://github.com/MultiArrayQueue/MultiArrayQueue</a>
  *
- * @author VÌt Proch·zka
+ * @author V√≠t Proch√°zka
  * @param <T> the type of Object held in the Queue
  */
 public class BlockingMultiArrayQueue<T>
