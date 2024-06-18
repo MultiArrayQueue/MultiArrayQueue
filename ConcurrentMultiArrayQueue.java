@@ -151,7 +151,7 @@ public class ConcurrentMultiArrayQueue<T>
      *
      * <p>The input parameters allow for the following three modes:
      * <ul>
-     * <li>(if {@code cntAllowedExtensions < 0}) an unbounded Queue (more precisely: bounded only by the
+     * <li>(if {@code cntAllowedExtensions == -1}) an unbounded Queue (more precisely: bounded only by the
      *     technical limit that none of the (exponentially growing) arrays of Objects would become bigger
      *     than the maximum value of an (signed) int (with some reserve, as Java itself does not allow
      *     to allocate arrays exactly to that limit)
@@ -166,6 +166,8 @@ public class ConcurrentMultiArrayQueue<T>
      * @param initialCapacity capacity of the first array of Objects (its size will be by one bigger)
      * @param cntAllowedExtensions how many times is the Queue allowed to extend (see above)
      * @throws IllegalArgumentException if initialCapacity is negative
+     * @throws IllegalArgumentException if initialCapacity is beyond maximum (less reserve)
+     * @throws IllegalArgumentException if cntAllowedExtensions has invalid value
      * @throws IllegalArgumentException if cntAllowedExtensions is unreachable
      */
     public ConcurrentMultiArrayQueue(String name, int initialCapacity, int cntAllowedExtensions)
@@ -173,7 +175,10 @@ public class ConcurrentMultiArrayQueue<T>
     {
         this.name = name;
         if (initialCapacity < 0) {
-            throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": initialCapacity is negative");
+            throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": initialCapacity " + initialCapacity + " is negative");
+        }
+        if (0x7FFF_FFF0 <= initialCapacity) {
+            throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": initialCapacity " + initialCapacity + " is beyond maximum (less reserve)");
         }
         firstArraySize = 1 + initialCapacity;
         int rixMax = 0;
@@ -184,7 +189,11 @@ public class ConcurrentMultiArrayQueue<T>
             if (0x0000_0000_7FFF_FFF0L < arraySize) break;  // stop if bigger than the maximum size of an int minus a reserve
             rixMax ++;
         }
-        if (0 <= cntAllowedExtensions)
+        if (cntAllowedExtensions < -1)
+        {
+            throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": cntAllowedExtensions has invalid value " + cntAllowedExtensions);
+        }
+        else if (0 <= cntAllowedExtensions)
         {
             if (cntAllowedExtensions <= rixMax)
             {
@@ -192,7 +201,7 @@ public class ConcurrentMultiArrayQueue<T>
             }
             else
             {
-                throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": cntAllowedExtensions is unreachable");
+                throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": cntAllowedExtensions " + cntAllowedExtensions + " is unreachable");
             }
         }
         rings = new Object[1 + rixMax][];  // allocate the rings array

@@ -142,7 +142,7 @@ public class BlockingMultiArrayQueue<T>
      *
      * <p>The input parameters allow for the following three modes:
      * <ul>
-     * <li>(if {@code cntAllowedExtensions < 0}) an unbounded Queue (more precisely: bounded only by the
+     * <li>(if {@code cntAllowedExtensions == -1}) an unbounded Queue (more precisely: bounded only by the
      *     technical limit that none of the (exponentially growing) arrays of Objects would become bigger
      *     than the maximum value of an (signed) int (with some reserve, as Java itself does not allow
      *     to allocate arrays exactly to that limit)
@@ -158,6 +158,8 @@ public class BlockingMultiArrayQueue<T>
      * @param cntAllowedExtensions how many times is the Queue allowed to extend (see above)
      * @param fair true: ReentrantLock should use a fair ordering policy
      * @throws IllegalArgumentException if initialCapacity is negative
+     * @throws IllegalArgumentException if initialCapacity is beyond maximum (less reserve)
+     * @throws IllegalArgumentException if cntAllowedExtensions has invalid value
      * @throws IllegalArgumentException if cntAllowedExtensions is unreachable
      */
     public BlockingMultiArrayQueue(String name, int initialCapacity, int cntAllowedExtensions, boolean fair)
@@ -165,7 +167,10 @@ public class BlockingMultiArrayQueue<T>
     {
         this.name = name;
         if (initialCapacity < 0) {
-            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": initialCapacity is negative");
+            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": initialCapacity " + initialCapacity + " is negative");
+        }
+        if (0x7FFF_FFF0 <= initialCapacity) {
+            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": initialCapacity " + initialCapacity + " is beyond maximum (less reserve)");
         }
         firstArraySize = 1 + initialCapacity;
         int rixMax = 0;
@@ -176,7 +181,11 @@ public class BlockingMultiArrayQueue<T>
             if (0x0000_0000_7FFF_FFF0L < arraySize) break;  // stop if bigger than the maximum size of an int minus a reserve
             rixMax ++;
         }
-        if (0 <= cntAllowedExtensions)
+        if (cntAllowedExtensions < -1)
+        {
+            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": cntAllowedExtensions has invalid value " + cntAllowedExtensions);
+        }
+        else if (0 <= cntAllowedExtensions)
         {
             if (cntAllowedExtensions <= rixMax)
             {
@@ -184,7 +193,7 @@ public class BlockingMultiArrayQueue<T>
             }
             else
             {
-                throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": cntAllowedExtensions is unreachable");
+                throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": cntAllowedExtensions " + cntAllowedExtensions + " is unreachable");
             }
         }
         rings = new Object[1 + rixMax][];  // allocate the rings array
@@ -222,9 +231,10 @@ public class BlockingMultiArrayQueue<T>
      * Lock-based Enqueue of an Object
      *
      * @param object the Object to enqueue
-     * @param waitNanos zero: return false immediately if Queue is full, negative: wait forever, positive: maximum nanoseconds to wait
+     * @param waitNanos 0: return false immediately if Queue is full, -1: wait forever, positive: maximum nanoseconds to wait
      * @return true if enqueued, false if not enqueued due to full Queue
      * @throws IllegalArgumentException if the enqueued Object is null
+     * @throws IllegalArgumentException if waitNanos has invalid value
      * @throws InterruptedException if the current thread is interrupted
      */
     public boolean enqueue(T object, long waitNanos)
@@ -232,6 +242,9 @@ public class BlockingMultiArrayQueue<T>
     {
         if (null == object) {
             throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": enqueued Object is null");
+        }
+        if (waitNanos < -1L) {
+            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": waitNanos on enqueue has invalid value " + waitNanos);
         }
 
         ReentrantLock lock = this.lock;
@@ -363,7 +376,7 @@ public class BlockingMultiArrayQueue<T>
 
                 if (queueIsFull)
                 {
-                    if (waitNanos < 0L)  // wait forever
+                    if (-1L == waitNanos)  // wait forever
                     {
                         notFull.await();
                     }
@@ -428,14 +441,19 @@ public class BlockingMultiArrayQueue<T>
     /**
      * Lock-based Dequeue of an Object
      *
-     * @param waitNanos zero: return null immediately if Queue is empty, negative: wait forever, positive: maximum nanoseconds to wait
+     * @param waitNanos 0: return null immediately if Queue is empty, -1: wait forever, positive: maximum nanoseconds to wait
      * @return the dequeued Object, or null if the Queue is empty
+     * @throws IllegalArgumentException if waitNanos has invalid value
      * @throws InterruptedException if the current thread is interrupted
      */
     @SuppressWarnings("unchecked")
     public T dequeue(long waitNanos)
-    throws InterruptedException
+    throws IllegalArgumentException, InterruptedException
     {
+        if (waitNanos < -1L) {
+            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": waitNanos on dequeue has invalid value " + waitNanos);
+        }
+
         ReentrantLock lock = this.lock;
         lock.lockInterruptibly();
 
@@ -452,7 +470,7 @@ public class BlockingMultiArrayQueue<T>
 
                 if (writerPos == readerPos)  // the reader stands on the writer: the Queue is empty
                 {
-                    if (waitNanos < 0L)  // wait forever
+                    if (-1L == waitNanos)  // wait forever
                     {
                         notEmpty.await();
                     }
