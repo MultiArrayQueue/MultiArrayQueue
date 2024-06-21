@@ -182,7 +182,7 @@ public class ConcurrentMultiArrayQueue<T>
         }
         firstArraySize = 1 + initialCapacity;
         int rixMax = 0;
-        long arraySize = firstArraySize;
+        long arraySize = ((long) firstArraySize);
         for (;;)
         {
             arraySize <<= 1;  // times two
@@ -216,8 +216,8 @@ public class ConcurrentMultiArrayQueue<T>
         }
         ringsMaxIndex = 0;  // we now start with only rings[0] allocated
 
-        writerPosition = new AtomicLong((firstArraySize - 1) << 5);  // next prospective move leads to rings[0][0]
-        readerPosition = new AtomicLong((firstArraySize - 1) << 5);  // ditto
+        writerPosition = new AtomicLong(((long)(firstArraySize - 1)) << 5);  // next prospective move leads to rings[0][0]
+        readerPosition = new AtomicLong(((long)(firstArraySize - 1)) << 5);  // ditto
     }
 
     // ___  _  _ ___  _    _ ____    _  _ ____ ___ _  _ ____ ___  ____
@@ -413,11 +413,11 @@ public class ConcurrentMultiArrayQueue<T>
                 // that lead from that array of Objects, so one bottom-up pass through the diversions array
                 // that starts at 1 + writerRix suffices (i.e. a short linear search)
 
-                for (int rix = 1 + writerRix; rix <= rixMax; rix ++)
+                for (int rix = (1 + writerRix); rix <= rixMax; rix ++)
                 {
                     if (diversions[rix - 1] == writerPos)
                     {
-                        writerPos = rix;  // move to the first element of the array of Objects the diversion leads to
+                        writerPos = ((long) rix);  // move to the first element of the array of Objects the diversion leads to
                         writerRix = rix;
                         writerIx  = 0;
                     }
@@ -501,7 +501,7 @@ public class ConcurrentMultiArrayQueue<T>
 
                         ringsMaxIndex = rixMaxNew;  // increment ringsMaxIndex (volatile write AFTER writes to rings and diversions)
 
-                        writerPos = rixMaxNew;  // new writer position = first array element of the new array
+                        writerPos = ((long) rixMaxNew);  // new writer position = first array element of the new array
 
                         // AtomicLong.compareAndSet has the memory effects of both reading and writing volatile variables
                         // (so no writes can get re-ordered after it)
@@ -696,11 +696,11 @@ public class ConcurrentMultiArrayQueue<T>
                 // that lead from that array of Objects, so one bottom-up pass through the diversions array
                 // that starts at 1 + readerRix suffices (i.e. a short linear search)
 
-                for (int rix = 1 + readerRix; rix <= rixMax; rix ++)
+                for (int rix = (1 + readerRix); rix <= rixMax; rix ++)
                 {
                     if (diversions[rix - 1] == readerPos)
                     {
-                        readerPos = rix;  // move to the first element of the array of Objects the diversion leads to
+                        readerPos = ((long) rix);  // move to the first element of the array of Objects the diversion leads to
                         readerRix = rix;
                         readerIx  = 0;
                     }

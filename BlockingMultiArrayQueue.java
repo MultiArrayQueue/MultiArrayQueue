@@ -174,7 +174,7 @@ public class BlockingMultiArrayQueue<T>
         }
         firstArraySize = 1 + initialCapacity;
         int rixMax = 0;
-        long arraySize = firstArraySize;
+        long arraySize = ((long) firstArraySize);
         for (;;)
         {
             arraySize <<= 1;  // times two
@@ -208,8 +208,8 @@ public class BlockingMultiArrayQueue<T>
         }
         ringsMaxIndex = 0;  // we now start with only rings[0] allocated
 
-        writerPosition = ((firstArraySize - 1) << 5);  // next prospective move leads to rings[0][0]
-        readerPosition = ((firstArraySize - 1) << 5);  // ditto
+        writerPosition = (((long)(firstArraySize - 1)) << 5);  // next prospective move leads to rings[0][0]
+        readerPosition = (((long)(firstArraySize - 1)) << 5);  // ditto
 
         lock = new ReentrantLock(fair);
         notEmpty = lock.newCondition();
@@ -324,11 +324,11 @@ public class BlockingMultiArrayQueue<T>
                     // that lead from that array of Objects, so one bottom-up pass through the diversions array
                     // that starts at 1 + writerRix suffices (i.e. a short linear search)
 
-                    for (int rix = 1 + writerRix; rix <= rixMax; rix ++)
+                    for (int rix = (1 + writerRix); rix <= rixMax; rix ++)
                     {
                         if (diversions[rix - 1] == writerPos)
                         {
-                            writerPos = rix;  // move to the first element of the array of Objects the diversion leads to
+                            writerPos = ((long) rix);  // move to the first element of the array of Objects the diversion leads to
                             writerRix = rix;
                             writerIx  = 0;
                         }
@@ -421,7 +421,7 @@ public class BlockingMultiArrayQueue<T>
 
                 ringsMaxIndex = rixMaxNew;  // increment ringsMaxIndex
 
-                writerPosition = rixMaxNew;  // new writer position = first array element of the new array
+                writerPosition = ((long) rixMaxNew);  // new writer position = first array element of the new array
             }
             else  // no extendQueue
             {
@@ -527,11 +527,11 @@ public class BlockingMultiArrayQueue<T>
                 // that lead from that array of Objects, so one bottom-up pass through the diversions array
                 // that starts at 1 + readerRix suffices (i.e. a short linear search)
 
-                for (int rix = 1 + readerRix; rix <= rixMax; rix ++)
+                for (int rix = (1 + readerRix); rix <= rixMax; rix ++)
                 {
                     if (diversions[rix - 1] == readerPos)
                     {
-                        readerPos = rix;  // move to the first element of the array of Objects the diversion leads to
+                        readerPos = ((long) rix);  // move to the first element of the array of Objects the diversion leads to
                         readerRix = rix;
                         readerIx  = 0;
                     }
