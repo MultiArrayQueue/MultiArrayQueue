@@ -182,7 +182,7 @@ public class ConcurrentMultiArrayQueue<T>
         }
         firstArraySize = 1 + initialCapacity;
         int rixMax = 0;
-        long arraySize = ((long) firstArraySize);
+        long arraySize = (long) firstArraySize;
         for (;;)
         {
             arraySize <<= 1;  // times two
@@ -359,8 +359,8 @@ public class ConcurrentMultiArrayQueue<T>
             for (;;)
             {
                 writerPos += 0x0000_0000_0000_0020L;  // prospective move forward (the increment never overflows due to the reserve)
-                writerRix = (int)  (writerPos & 0x0000_0000_0000_001FL);
-                writerIx  = (int) ((writerPos & 0x0000_000F_FFFF_FFE0L) >>> 5);
+                writerRix = (int) (writerPos & 0x0000_0000_0000_001FL);
+                writerIx  = (int) (writerPos >>> 5);
 
                 // if the prospective move goes "beyond" the end of rings[writerRix]
                 if ((firstArraySize << writerRix) == writerIx)
@@ -376,8 +376,8 @@ public class ConcurrentMultiArrayQueue<T>
                     else  // i.e. we are in a "higher" rings[N]
                     {
                         writerPos = diversions[writerRix - 1];  // follow diversion[N-1] back
-                        writerRix = (int)  (writerPos & 0x0000_0000_0000_001FL);
-                        writerIx  = (int) ((writerPos & 0x0000_000F_FFFF_FFE0L) >>> 5);
+                        writerRix = (int) (writerPos & 0x0000_0000_0000_001FL);
+                        writerIx  = (int) (writerPos >>> 5);
 
                         if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
                         {
@@ -458,8 +458,8 @@ public class ConcurrentMultiArrayQueue<T>
                                 }
                                 break test_next;
                             }
-                            testNextWriterRix = (int)  (testNextWriterPos & 0x0000_0000_0000_001FL);
-                            testNextWriterIx  = (int) ((testNextWriterPos & 0x0000_000F_FFFF_FFE0L) >>> 5);
+                            testNextWriterRix = (int) (testNextWriterPos & 0x0000_0000_0000_001FL);
+                            testNextWriterIx  = (int) (testNextWriterPos >>> 5);
                         }
                     }
                 }
@@ -666,8 +666,8 @@ public class ConcurrentMultiArrayQueue<T>
             for (;;)
             {
                 readerPos += 0x0000_0000_0000_0020L;  // prospective move forward (the increment never overflows due to the reserve)
-                readerRix = (int)  (readerPos & 0x0000_0000_0000_001FL);
-                readerIx  = (int) ((readerPos & 0x0000_000F_FFFF_FFE0L) >>> 5);
+                readerRix = (int) (readerPos & 0x0000_0000_0000_001FL);
+                readerIx  = (int) (readerPos >>> 5);
 
                 // if the prospective move goes "beyond" the end of rings[readerRix]
                 if ((firstArraySize << readerRix) == readerIx)
@@ -683,8 +683,8 @@ public class ConcurrentMultiArrayQueue<T>
                     else  // i.e. we are in a "higher" rings[N]
                     {
                         readerPos = diversions[readerRix - 1];  // follow diversion[N-1] back
-                        readerRix = (int)  (readerPos & 0x0000_0000_0000_001FL);
-                        readerIx  = (int) ((readerPos & 0x0000_000F_FFFF_FFE0L) >>> 5);
+                        readerRix = (int) (readerPos & 0x0000_0000_0000_001FL);
+                        readerIx  = (int) (readerPos >>> 5);
                         break go_forward;  // the prospective move forward is done, we are on the return path of a diversion
                     }
                 }
