@@ -109,6 +109,14 @@ public class BlockingMultiArrayQueue<T>
     //                                 (1 bit)
     //    mask 0xFFFF_FFE0_0000_0000L: unused (zero)
     //                                 (27 bits)
+    //
+    // Design footnote 1: It has been proposed from the public, giving reference to the paper
+    // Resizable Arrays in Optimal Time and Space by Brodnik, Carlsson, Demaine, Munro and Sedgewick,
+    // to address the rings array and the position in the array of Objects using a single index.
+    // This would result in better packing of rix and ix at the cost of extra computation (of MSB position).
+    // The most appealing benefit would be the reduction of the size of the diversions array (from long[] to int[]).
+    // (Let's earmark this proposal as a candidate for future optimizations.)
+
     private final long[] diversions;
     private long writerPosition;
     private long readerPosition;
@@ -216,16 +224,16 @@ public class BlockingMultiArrayQueue<T>
         notFull =  lock.newCondition();
     }
 
-    // ___  _  _ ___  _    _ ____    _  _ ____ ___ _  _ ____ ___  ____
-    // |__] |  | |__] |    | |       |\/| |___  |  |__| |  | |  \ [__
-    // |    |__| |__] |___ | |___    |  | |___  |  |  | |__| |__/ ___]
-
     /**
      * Gets the name of the Queue
      *
      * @return name of the Queue
      */
     public String getName() { return name; }
+
+    // ____ _  _ ____ _  _ ____ _  _ ____
+    // |___ |\ | |  | |  | |___ |  | |___
+    // |___ | \| |_\| |__| |___ |__| |___
 
     /**
      * Lock-based Enqueue of an Object
@@ -356,7 +364,7 @@ public class BlockingMultiArrayQueue<T>
                         int testNextWriterIx = writerIx;
 
                         test_next:
-                        for (; (0 != testNextWriterRix) && ((firstArraySize << testNextWriterRix) == (1 + testNextWriterIx)) ;)
+                        for (; ((0 != testNextWriterRix) && ((firstArraySize << testNextWriterRix) == (1 + testNextWriterIx))) ;)
                         {
                             testNextWriterPos = diversions[testNextWriterRix - 1];  // follow the diversion back
                             if (readerPos == testNextWriterPos)  // if we would hit the reader
@@ -437,6 +445,10 @@ public class BlockingMultiArrayQueue<T>
             lock.unlock();
         }
     }
+
+    // ___  ____ ____ _  _ ____ _  _ ____
+    // |  \ |___ |  | |  | |___ |  | |___
+    // |__/ |___ |_\| |__| |___ |__| |___
 
     /**
      * Lock-based Dequeue of an Object

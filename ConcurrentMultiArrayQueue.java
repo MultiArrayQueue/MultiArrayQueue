@@ -120,7 +120,14 @@ public class ConcurrentMultiArrayQueue<T>
     //                                 (27 bits, in writerPosition and readerPosition only, leftmost item, so overflow is ok)
     //
     // ad ABA problem: There still exists a (miniature) chance for it to occur: If a thread gets preempted
-    // for such an excessive time during which the 27-bit round number rolls over back to its old value.
+    // for such an excessive time during which the 27-bit round number would roll over back to its old value.
+    //
+    // Design footnote 1: It has been proposed from the public, giving reference to the paper
+    // Resizable Arrays in Optimal Time and Space by Brodnik, Carlsson, Demaine, Munro and Sedgewick,
+    // to address the rings array and the position in the array of Objects using a single index.
+    // This would result in better packing of rix and ix at the cost of extra computation (of MSB position).
+    // The most appealing benefit would be the reduction of the size of the diversions array (from long[] to int[]).
+    // (Let's earmark this proposal as a candidate for future optimizations.)
 
     private final long[] diversions;
     private final AtomicLong writerPosition;
@@ -220,16 +227,16 @@ public class ConcurrentMultiArrayQueue<T>
         readerPosition = new AtomicLong(((long)(firstArraySize - 1)) << 5);  // ditto
     }
 
-    // ___  _  _ ___  _    _ ____    _  _ ____ ___ _  _ ____ ___  ____
-    // |__] |  | |__] |    | |       |\/| |___  |  |__| |  | |  \ [__
-    // |    |__| |__] |___ | |___    |  | |___  |  |  | |__| |__/ ___]
-
     /**
      * Gets the name of the Queue
      *
      * @return name of the Queue
      */
     public String getName() { return name; }
+
+    // ____ _  _ ____ _  _ ____ _  _ ____
+    // |___ |\ | |  | |  | |___ |  | |___
+    // |___ | \| |_\| |__| |___ |__| |___
 
     /**
      * Concurrent Enqueue of an Object
@@ -447,7 +454,7 @@ public class ConcurrentMultiArrayQueue<T>
                         int testNextWriterIx = writerIx;
 
                         test_next:
-                        for (; (0 != testNextWriterRix) && ((firstArraySize << testNextWriterRix) == (1 + testNextWriterIx)) ;)
+                        for (; ((0 != testNextWriterRix) && ((firstArraySize << testNextWriterRix) == (1 + testNextWriterIx))) ;)
                         {
                             testNextWriterPos = diversions[testNextWriterRix - 1];  // follow the diversion back
                             if (readerPos == testNextWriterPos)  // if we would hit the reader
@@ -475,6 +482,12 @@ public class ConcurrentMultiArrayQueue<T>
                     // (spot C relevant to lock-freedom, see Paper)
                     // other writers are now "locked-out", so go ahead with extending the Queue + creating the new diversion
                     // (readers can continue their work but once they deplete the Queue, they cannot go past the writerPosition)
+
+                    // Design footnote 2: It is by principle impossible to make the extension operation both garbage-free
+                    // and lock-free in the strict sense, because that would require the allocation of the new array to be
+                    // part of the preparation phase, executed potentially by multiple threads, but only one thread's CAS
+                    // would succeed and its new array would be used, and the arrays prepared by the other threads
+                    // would be useless (even useless for any future extensions).
 
                     boolean inProgressFlagCleared = false;
                     int rixMaxNew = 1 + rixMax;
@@ -506,7 +519,7 @@ public class ConcurrentMultiArrayQueue<T>
                         // AtomicLong.compareAndSet has the memory effects of both reading and writing volatile variables
                         // (so no writes can get re-ordered after it)
 
-                        if (! writerPosition.compareAndSet(origWriter | 0x0000_0010_0000_0000L, writerRound | writerPos))
+                        if (! writerPosition.compareAndSet((origWriter | 0x0000_0010_0000_0000L), (writerRound | writerPos)))
                         {
                             throw new AssertionError("ConcurrentMultiArrayQueue " + name
                                                    + ": CAS to advance from in-progress flag failed", null);
@@ -568,13 +581,41 @@ public class ConcurrentMultiArrayQueue<T>
                 }
 
                 // CAS the prospective writer position
-                if (writerPosition.compareAndSet(origWriter, writerRound | writerPos))
+                if (writerPosition.compareAndSet(origWriter, (writerRound | writerPos)))
                 {
                     // (spot A relevant to lock-freedom, see Paper)
                     // the writer position is now "ours", so write the Object
                     // (this cannot get re-ordered before the CAS, because it depends on the CAS)
                     // (however it can get re-ordered to later - after the return)
                     // (but: readers wait till they see the position filled)
+
+                    // Design footnote 3: The missing lock-freedom on this spot has perhaps the biggest
+                    // practical relevance: Imagine the queue almost empty, i.e. the readers are
+                    // close behind the writers. If a writer successfully moves writerPosition forward
+                    // and gets preempted before actually writing the Object, then other writers
+                    // can continue beyond that place, but readers will be blocked at that place
+                    // until the preempted writer wakes up again and actually writes the Object.
+
+                    // Design footnote 4: Theoretically it would be possible to re-arrange the algorithm
+                    // to achieve lock-freedom in the strict sense on this spot, using the principles
+                    // of the Michael & Scott Queue, i.e.:
+                    // The linearization operation would be writing the Object to the array,
+                    // and moving writerPosition forward could be helped by other threads.
+                    // This would however require each Object to be accompanied by the round number,
+                    // effectively doubling the memory consumption, and it would further require
+                    // a double-width (128 bit) CAS, which is available e.g. on i86-64 (CMPXCHG16B),
+                    // but is not accessible from Java.
+
+                    // Design footnote 5: To implement lock-freedom on this spot by the principles of
+                    // the a.m. Michael & Scott Queue via the operations available in Java,
+                    // one option would be to store integers (instead of Objects) in the queue,
+                    // so that the integers AND the round numbers could be together accommodated
+                    // in the 64-bit AtomicLongs. This would however require the translation between
+                    // the integers and the Objects to be done "somewhere" outside of the queue ...
+
+                    // Design footnote 6: The other means of approaching lock-freedom on this spot
+                    // are in the Paper: Double-Location CAS (rather theoretical) and pinning
+                    // of threads to cores (== avoiding thread preemptions).
 
                     array[writerIx] = object;
                     return true;
@@ -586,6 +627,10 @@ public class ConcurrentMultiArrayQueue<T>
             }
         }
     }
+
+    // ___  ____ ____ _  _ ____ _  _ ____
+    // |  \ |___ |  | |  | |___ |  | |___
+    // |__/ |___ |_\| |__| |___ |__| |___
 
     /**
      * Concurrent Dequeue of an Object
@@ -657,7 +702,7 @@ public class ConcurrentMultiArrayQueue<T>
             //
             // the last interesting situation is when a writer has hit us "from behind" and created a new diversion
             // on that place - also we suddenly appear on the return path of the just-inserted new diversion.
-            // Here it is irrelevant if we see the new diversion or not, because for leaving the position we do not need
+            // Here it is irrelevant if we see the new diversion or not, because for leaving that place we do not need
             // that information.
 
             int readerRix, readerIx;
@@ -734,13 +779,15 @@ public class ConcurrentMultiArrayQueue<T>
             }
 
             // CAS the prospective reader position
-            if (readerPosition.compareAndSet(origReader, readerRound | readerPos))
+            if (readerPosition.compareAndSet(origReader, (readerRound | readerPos)))
             {
                 // (spot B relevant to lock-freedom, see Paper)
                 // the reader position is now "ours", so clear it and return the Object
                 // (this cannot get re-ordered before the CAS, because it depends on the CAS)
                 // (however it can get re-ordered to later - after the return)
                 // (but: writers wait till they see the position cleared)
+
+                // Design footnotes 4,5,6 apply on this spot accordingly.
 
                 array[readerIx] = null;
                 return (T) object;
