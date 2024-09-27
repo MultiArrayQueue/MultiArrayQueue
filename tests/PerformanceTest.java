@@ -124,7 +124,7 @@ public class PerformanceTest
         } else if (null != concurrentMultiArrayQueue) {
             return concurrentMultiArrayQueue.enqueue(object);
         }
-        throw new AssertionError("no Queue is set");
+        throw new AssertionError("no Queue is set", null);
     }
 
     // method to dequeue from the Queue specified on the command line
@@ -142,7 +142,7 @@ public class PerformanceTest
         } else if (null != concurrentMultiArrayQueue) {
             return concurrentMultiArrayQueue.dequeue();
         }
-        throw new AssertionError("no Queue is set");
+        throw new AssertionError("no Queue is set", null);
     }
 
     // main method

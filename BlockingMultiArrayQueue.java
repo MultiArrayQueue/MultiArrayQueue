@@ -134,7 +134,7 @@ public class BlockingMultiArrayQueue<T>
      * named "Queue", with initial capacity 30 (size 31 of the first array of Objects), unbounded, no fair ordering policy.
      *
      * <p>This initial capacity allows for up to 26 subsequent (exponentially growing) arrays of Objects
-     * which would altogether give a cumulative capacity of 4.160.749.537 minus 1 Objects.
+     * which would altogether give a maximum (cumulative) capacity of 4.160.749.537 minus 1 Objects.
      *
      * <p>The initial memory footprint of this Queue will be (27 + 26 + 31 + 9) 64-bit-words
      * + a couple of Java object headers, also circa 1 kilobyte.
@@ -158,7 +158,7 @@ public class BlockingMultiArrayQueue<T>
      * <li>(if {@code 0 < cntAllowedExtensions}) bounded Queue with only a partial capacity pre-allocated
      *     and allowed to extend (grow) the given number of times. E.g. if initialCapacity == 100 and
      *     cntAllowedExtensions == 3, then the Queue can grow up to four arrays with sizes 101, 202, 404 and 808,
-     *     giving the final capacity of 1515 minus 1 Objects.
+     *     giving a maximum capacity of 1515 minus 1 Objects.
      * </ul>
      *
      * @param name name of the Queue
@@ -180,29 +180,20 @@ public class BlockingMultiArrayQueue<T>
         if (0x7FFF_FFF0 <= initialCapacity) {
             throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": initialCapacity " + initialCapacity + " is beyond maximum (less reserve)");
         }
+        if (cntAllowedExtensions < -1) {
+            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": cntAllowedExtensions has invalid value " + cntAllowedExtensions);
+        }
         firstArraySize = 1 + initialCapacity;
         int rixMax = 0;
-        long arraySize = (long) firstArraySize;
-        for (;;)
+        for (long arraySize = (long) firstArraySize ;;)
         {
+            if ((0 <= cntAllowedExtensions) && (cntAllowedExtensions == rixMax)) break;
             arraySize <<= 1;  // times two
             if (0x0000_0000_7FFF_FFF0L < arraySize) break;  // stop if bigger than the maximum size of an int minus a reserve
             rixMax ++;
         }
-        if (cntAllowedExtensions < -1)
-        {
-            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": cntAllowedExtensions has invalid value " + cntAllowedExtensions);
-        }
-        else if (0 <= cntAllowedExtensions)
-        {
-            if (cntAllowedExtensions <= rixMax)
-            {
-                rixMax = cntAllowedExtensions;
-            }
-            else
-            {
-                throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": cntAllowedExtensions " + cntAllowedExtensions + " is unreachable");
-            }
+        if ((0 <= cntAllowedExtensions) && (rixMax < cntAllowedExtensions)) {
+            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": cntAllowedExtensions " + cntAllowedExtensions + " is unreachable");
         }
         rings = new Object[1 + rixMax][];  // allocate the rings array
         rings[0] = new Object[firstArraySize];  // allocate the first array of Objects
@@ -230,6 +221,23 @@ public class BlockingMultiArrayQueue<T>
      * @return name of the Queue
      */
     public String getName() { return name; }
+
+    /**
+     * Gets the maximum capacity (when the Queue is fully extended)
+     *
+     * @return maximum capacity of the Queue
+     */
+    public long getMaximumCapacity()
+    {
+        long maxCapacity = firstArraySize - 1;
+        int arraySize = firstArraySize;
+        for (int i = 1; i < rings.length; i ++)
+        {
+            arraySize <<= 1;  // times two
+            maxCapacity += arraySize;
+        }
+        return maxCapacity;
+    }
 
     // ____ _  _ ____ _  _ ____ _  _ ____
     // |___ |\ | |  | |  | |___ |  | |___
