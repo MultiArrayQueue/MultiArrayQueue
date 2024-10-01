@@ -62,6 +62,8 @@ import java.util.concurrent.locks.Condition;
  */
 public class BlockingMultiArrayQueue<T>
 {
+    private static final String qType = "BlockingMultiArrayQueue";
+
     // Naming of the Queue is practical in bigger projects with many Queues
     private final String name;
 
@@ -175,13 +177,16 @@ public class BlockingMultiArrayQueue<T>
     {
         this.name = name;
         if (initialCapacity < 0) {
-            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": initialCapacity " + initialCapacity + " is negative");
+            throw new IllegalArgumentException(String.format(
+                "%s %s: initialCapacity %,d is negative", qType, name, initialCapacity));
         }
         if (0x7FFF_FFF0 <= initialCapacity) {
-            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": initialCapacity " + initialCapacity + " is beyond maximum (less reserve)");
+            throw new IllegalArgumentException(String.format(
+                "%s %s: initialCapacity %,d is beyond maximum (less reserve)", qType, name, initialCapacity));
         }
         if (cntAllowedExtensions < -1) {
-            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": cntAllowedExtensions has invalid value " + cntAllowedExtensions);
+            throw new IllegalArgumentException(String.format(
+                "%s %s: cntAllowedExtensions has invalid value %d", qType, name, cntAllowedExtensions));
         }
         firstArraySize = 1 + initialCapacity;
         int rixMax = 0;
@@ -193,7 +198,8 @@ public class BlockingMultiArrayQueue<T>
             rixMax ++;
         }
         if ((0 <= cntAllowedExtensions) && (rixMax < cntAllowedExtensions)) {
-            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": cntAllowedExtensions " + cntAllowedExtensions + " is unreachable");
+            throw new IllegalArgumentException(String.format(
+                "%s %s: cntAllowedExtensions %d is unreachable", qType, name, cntAllowedExtensions));
         }
         rings = new Object[1 + rixMax][];  // allocate the rings array
         rings[0] = new Object[firstArraySize];  // allocate the first array of Objects
@@ -257,10 +263,12 @@ public class BlockingMultiArrayQueue<T>
     throws IllegalArgumentException, InterruptedException
     {
         if (null == object) {
-            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": enqueued Object is null");
+            throw new IllegalArgumentException(String.format(
+                "%s %s: enqueued Object is null", qType, name));
         }
         if (waitNanos < -1L) {
-            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": waitNanos on enqueue has invalid value " + waitNanos);
+            throw new IllegalArgumentException(String.format(
+                "%s %s: waitNanos on enqueue has invalid value %,d", qType, name, waitNanos));
         }
 
         ReentrantLock lock = this.lock;
@@ -321,8 +329,9 @@ public class BlockingMultiArrayQueue<T>
                                     //
                                     // so now: as the reader cannot move back, it is impossible that we hit him, but better check ...
 
-                                    throw new AssertionError("BlockingMultiArrayQueue " + name
-                                                           + ": hit reader on the return path of a diversion", null);
+                                    throw new AssertionError(String.format(
+                                        "%s %s: hit reader on the return path of a diversion (0x%X 0x%X 0x%X)",
+                                        qType, name, writerPosition, readerPosition, writerPos), null);
                                 }
                                 else
                                 {
@@ -422,8 +431,9 @@ public class BlockingMultiArrayQueue<T>
                 {
                     if (diversions[rix - 1] == writerPos)
                     {
-                        throw new AssertionError("BlockingMultiArrayQueue " + name
-                                               + ": duplicity in the diversions array", null);
+                        throw new AssertionError(String.format(
+                            "%s %s: duplicity in the diversions array (0x%X 0x%X 0x%X)",
+                            qType, name, writerPosition, readerPosition, writerPos), null);
                     }
                 }
 
@@ -471,7 +481,8 @@ public class BlockingMultiArrayQueue<T>
     throws IllegalArgumentException, InterruptedException
     {
         if (waitNanos < -1L) {
-            throw new IllegalArgumentException("BlockingMultiArrayQueue " + name + ": waitNanos on dequeue has invalid value " + waitNanos);
+            throw new IllegalArgumentException(String.format(
+                "%s %s: waitNanos on dequeue has invalid value %,d", qType, name, waitNanos));
         }
 
         ReentrantLock lock = this.lock;

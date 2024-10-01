@@ -175,11 +175,11 @@ public class SequenceTest
             }
         }
 
-        System.out.println(String.format("fullQueueHits:  %,15d", fullQueueHits));
-        System.out.println(String.format("emptyQueueHits: %,15d", emptyQueueHits));
-        System.out.println(String.format("queueReplaces:  %,15d", queueReplaces));
-        System.out.println(String.format("inSequence:     %,15d", inSequence));
-        System.out.println(String.format("outSequence:    %,15d", outSequence));
-        System.out.println(String.format("SequenceTest of %s finished successfully.", args[0]));
+        System.out.printf("fullQueueHits:  %,15d%n", fullQueueHits);
+        System.out.printf("emptyQueueHits: %,15d%n", emptyQueueHits);
+        System.out.printf("queueReplaces:  %,15d%n", queueReplaces);
+        System.out.printf("inSequence:     %,15d%n", inSequence);
+        System.out.printf("outSequence:    %,15d%n", outSequence);
+        System.out.printf("SequenceTest of %s finished successfully.%n", args[0]);
     }
 }

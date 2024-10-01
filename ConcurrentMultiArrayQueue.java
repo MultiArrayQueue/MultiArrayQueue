@@ -67,6 +67,8 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class ConcurrentMultiArrayQueue<T>
 {
+    private static final String qType = "ConcurrentMultiArrayQueue";
+
     // Naming of the Queue is practical in bigger projects with many Queues
     private final String name;
 
@@ -182,13 +184,16 @@ public class ConcurrentMultiArrayQueue<T>
     {
         this.name = name;
         if (initialCapacity < 0) {
-            throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": initialCapacity " + initialCapacity + " is negative");
+            throw new IllegalArgumentException(String.format(
+                "%s %s: initialCapacity %,d is negative", qType, name, initialCapacity));
         }
         if (0x7FFF_FFF0 <= initialCapacity) {
-            throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": initialCapacity " + initialCapacity + " is beyond maximum (less reserve)");
+            throw new IllegalArgumentException(String.format(
+                "%s %s: initialCapacity %,d is beyond maximum (less reserve)", qType, name, initialCapacity));
         }
         if (cntAllowedExtensions < -1) {
-            throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": cntAllowedExtensions has invalid value " + cntAllowedExtensions);
+            throw new IllegalArgumentException(String.format(
+                "%s %s: cntAllowedExtensions has invalid value %d", qType, name, cntAllowedExtensions));
         }
         firstArraySize = 1 + initialCapacity;
         int rixMax = 0;
@@ -200,7 +205,8 @@ public class ConcurrentMultiArrayQueue<T>
             rixMax ++;
         }
         if ((0 <= cntAllowedExtensions) && (rixMax < cntAllowedExtensions)) {
-            throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": cntAllowedExtensions " + cntAllowedExtensions + " is unreachable");
+            throw new IllegalArgumentException(String.format(
+                "%s %s: cntAllowedExtensions %d is unreachable", qType, name, cntAllowedExtensions));
         }
         rings = new Object[1 + rixMax][];  // allocate the rings array
         rings[0] = new Object[firstArraySize];  // allocate the first array of Objects
@@ -260,7 +266,8 @@ public class ConcurrentMultiArrayQueue<T>
     throws IllegalArgumentException
     {
         if (null == object) {
-            throw new IllegalArgumentException("ConcurrentMultiArrayQueue " + name + ": enqueued Object is null");
+            throw new IllegalArgumentException(String.format(
+                "%s %s: enqueued Object is null", qType, name));
         }
 
         // HINT:
@@ -408,8 +415,9 @@ public class ConcurrentMultiArrayQueue<T>
                                     //
                                     // so now: as the reader cannot move back, it is impossible that we hit him, but better check ...
 
-                                    throw new AssertionError("ConcurrentMultiArrayQueue " + name
-                                                           + ": hit reader on the return path of a diversion", null);
+                                    throw new AssertionError(String.format(
+                                        "%s %s: hit reader on the return path of a diversion (0x%X 0x%X 0x%X)",
+                                        qType, name, origWriter, origReader, (writerRound | writerPos)), null);
                                 }
                                 else
                                 {
@@ -507,8 +515,9 @@ public class ConcurrentMultiArrayQueue<T>
                         {
                             if (diversions[rix - 1] == writerPos)
                             {
-                                throw new AssertionError("ConcurrentMultiArrayQueue " + name
-                                                       + ": duplicity in the diversions array", null);
+                                throw new AssertionError(String.format(
+                                    "%s %s: duplicity in the diversions array (0x%X 0x%X 0x%X)",
+                                    qType, name, origWriter, origReader, (writerRound | writerPos)), null);
                             }
                         }
 
@@ -529,8 +538,9 @@ public class ConcurrentMultiArrayQueue<T>
 
                         if (! writerPosition.compareAndSet((origWriter | 0x0000_0010_0000_0000L), (writerRound | writerPos)))
                         {
-                            throw new AssertionError("ConcurrentMultiArrayQueue " + name
-                                                   + ": CAS to advance from in-progress flag failed", null);
+                            throw new AssertionError(String.format(
+                                "%s %s: CAS to advance from in-progress flag failed (0x%X 0x%X 0x%X)",
+                                qType, name, origWriter, origReader, (writerRound | writerPos)), null);
                         }
 
                         // visibility of the just-written data to other writers and readers:
@@ -551,8 +561,9 @@ public class ConcurrentMultiArrayQueue<T>
                         {
                             if (! writerPosition.compareAndSet((origWriter | 0x0000_0010_0000_0000L), origWriter))
                             {
-                                throw new AssertionError("ConcurrentMultiArrayQueue " + name
-                                                       + ": CAS to revert in-progress flag failed", null);
+                                throw new AssertionError(String.format(
+                                    "%s %s: CAS to revert in-progress flag failed (0x%X 0x%X 0x%X)",
+                                    qType, name, origWriter, origReader, (writerRound | writerPos)), null);
                             }
                         }
                     }

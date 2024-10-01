@@ -70,7 +70,7 @@ class PerformanceTestThread implements Runnable
                 {
                     object = new PerformanceTestMessage();
                     object.sequenceNumber = PerformanceTest.allocCounter.getAndIncrement();  // assign it a unique sequenceNumber
-                    System.out.println(String.format("%s allocated [%d]", Thread.currentThread().getName(), object.sequenceNumber));
+                    System.out.printf("%s allocated [%d]%n", Thread.currentThread().getName(), object.sequenceNumber);
                 }
 
                 // enqueue Object
@@ -86,7 +86,7 @@ class PerformanceTestThread implements Runnable
                 ownIterations ++;
             }
 
-            System.out.println(String.format("%s stopped after no of iterations: %8d", Thread.currentThread().getName(), ownIterations));
+            System.out.printf("%s stopped after no of iterations: %,8d%n", Thread.currentThread().getName(), ownIterations);
         }
         catch (Exception e)
         {
@@ -198,7 +198,7 @@ public class PerformanceTest
         long stopThreadsMillis  = initMillis + 4000;  // the time at which all Threads should stop
         long postStopMillis     = initMillis + 5000;  // start checking after all Threads have stopped for sure
 
-        System.out.println(String.format("------- testing %s -------", args[0]));
+        System.out.printf("------- testing %s -------%n", args[0]);
 
         // pre-allocate Objects
         if (0 < preAllocatedObjects)
@@ -208,7 +208,7 @@ public class PerformanceTest
             {
                 PerformanceTestMessage object = new PerformanceTestMessage();
                 object.sequenceNumber = allocCounter.getAndIncrement();  // assign it a unique sequenceNumber
-                System.out.print(String.format(" [%d]", object.sequenceNumber));
+                System.out.printf(" [%d]", object.sequenceNumber);
                 if (! enqueue(object)) {
                     throw new AssertionError("Queue is full", null);
                 }
@@ -219,17 +219,17 @@ public class PerformanceTest
         // start the Threads
         for (int i = 0; i < numberOfThreads; i ++)
         {
-            Thread thread = new Thread(new PerformanceTestThread(stopThreadsMillis), String.format("Thread_%02d", i));
+            Thread thread = new Thread(new PerformanceTestThread(stopThreadsMillis), String.format("Thread_%04d", i));
             thread.start();
         }
-        System.out.println(String.format("%d Threads started, millis: %d", numberOfThreads, System.currentTimeMillis() - initMillis));
+        System.out.printf("%d Threads started, millis: %d%n", numberOfThreads, System.currentTimeMillis() - initMillis);
 
         // wait until beginMeasureMillis and then capture the value of perfCounter
         for (; System.currentTimeMillis() < beginMeasureMillis ;) {
             Thread.sleep(1);
         }
 
-        System.out.println(String.format("begin measure time, millis: %d", System.currentTimeMillis() - initMillis));
+        System.out.printf("begin measure time, millis: %d%n", System.currentTimeMillis() - initMillis);
         long perfCounterStart = perfCounter.get();
 
         // wait until endMeasureMillis and then capture and print the performance result
@@ -237,8 +237,8 @@ public class PerformanceTest
             Thread.sleep(1);
         }
 
-        System.out.println(String.format("end measure time, millis: %d", System.currentTimeMillis() - initMillis));
-        System.out.println(String.format("dequeue/enqueue pairs: %,d", perfCounter.get() - perfCounterStart));
+        System.out.printf("end measure time, millis: %d%n", System.currentTimeMillis() - initMillis);
+        System.out.printf("dequeue/enqueue pairs: %,d%n", perfCounter.get() - perfCounterStart);
 
         // wait until postStopMillis
         for (; System.currentTimeMillis() < postStopMillis ;) {
@@ -251,9 +251,9 @@ public class PerformanceTest
         // the Objects in the Queue will not be in any meaningful order,
         // but no Object may be missing and no Object reference may be duplicated !
 
-        System.out.println(String.format("start checking, millis: %d", System.currentTimeMillis() - initMillis));
+        System.out.printf("start checking, millis: %d%n", System.currentTimeMillis() - initMillis);
 
-        System.out.println(String.format("number of Objects allocated: %d", allocCounter.get()));
+        System.out.printf("number of Objects allocated: %d%n", allocCounter.get());
         boolean[] checkArray = new boolean[(int) allocCounter.get()];
 
         System.out.print("remained in Queue:");
@@ -264,7 +264,7 @@ public class PerformanceTest
                 throw new AssertionError(String.format("Object [%d] is duplicated", object.sequenceNumber), null);
             } else {
                 checkArray[(int) object.sequenceNumber] = true;
-                System.out.print(String.format(" [%d]", object.sequenceNumber));
+                System.out.printf(" [%d]", object.sequenceNumber);
             }
         }
         System.out.println();
