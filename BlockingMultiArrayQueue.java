@@ -235,7 +235,7 @@ public class BlockingMultiArrayQueue<T>
      */
     public long getMaximumCapacity()
     {
-        long maxCapacity = firstArraySize - 1;
+        long maxCapacity = (long)(firstArraySize - 1);
         int arraySize = firstArraySize;
         for (int i = 1; i < rings.length; i ++)
         {
@@ -574,6 +574,28 @@ public class BlockingMultiArrayQueue<T>
             array[readerIx] = null;  // clear the reader position
             notFull.signal();  // signal waiting writers
             return (T) object;  // return the Object
+        }
+        finally
+        {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Lock-based isEmpty method
+     *
+     * @return true if the Queue is empty, false otherwise
+     * @throws InterruptedException if the current thread is interrupted
+     */
+    public boolean isEmpty()
+    throws InterruptedException
+    {
+        ReentrantLock lock = this.lock;
+        lock.lockInterruptibly();
+
+        try
+        {
+            return (writerPosition == readerPosition);
         }
         finally
         {

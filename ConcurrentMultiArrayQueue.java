@@ -238,7 +238,7 @@ public class ConcurrentMultiArrayQueue<T>
      */
     public long getMaximumCapacity()
     {
-        long maxCapacity = firstArraySize - 1;
+        long maxCapacity = (long)(firstArraySize - 1);
         int arraySize = firstArraySize;
         for (int i = 1; i < rings.length; i ++)
         {
@@ -289,8 +289,8 @@ public class ConcurrentMultiArrayQueue<T>
 
             // if another writer is currently extending the Queue:
             //
-            // do not go ahead with the extension-in-progress flag, because origWriter == the expected value in the CAS
-            // (so wait for the other writer to finish the extension (or fail))
+            // do not go ahead with the extension-in-progress flag (prevent CASes that would compare with an origWriter that contains
+            // the extension-in-progress flag) --> wait for the other writer to finish the extension operation (or fail)
             if (0L != (origWriter & 0x0000_0010_0000_0000L))
             {
                 Thread.yield();  // the other writer is in spot C, so give him time
@@ -682,6 +682,12 @@ public class ConcurrentMultiArrayQueue<T>
             long writerRound = (origWriter & 0xFFFF_FFE0_0000_0000L);
             long writerPos   = (origWriter & 0x0000_000F_FFFF_FFFFL);
 
+            // Design footnote 7: The reader does not evaluate the extension-in-progress flag.
+            // This means that if the reader stands on the writer, the Queue is seen as empty
+            // even when an extension operation is in progress (but has not yet finished).
+            // This was a design decision. An alternative ("slower/stickier") solution is imaginable
+            // where the reader would wait for the writer to finish the extension operation in such case.
+
             if ((writerRound == readerRound) && (writerPos == readerPos))
             {
                 return null;  // the reader stands on the writer: the Queue is empty
@@ -816,6 +822,26 @@ public class ConcurrentMultiArrayQueue<T>
                 continue start_anew;  // CAS failed (i.e. lost the race against other readers) --> Start anew
             }
         }
+    }
+
+    /**
+     * Concurrent isEmpty method
+     *
+     * @return true if the Queue is empty, false otherwise
+     */
+    public boolean isEmpty()
+    {
+        long origReader = readerPosition.get();  // volatile read
+
+        long readerRound = (origReader & 0xFFFF_FFE0_0000_0000L);
+        long readerPos   = (origReader & 0x0000_000F_FFFF_FFFFL);
+
+        long origWriter = writerPosition.get();  // volatile read
+
+        long writerRound = (origWriter & 0xFFFF_FFE0_0000_0000L);
+        long writerPos   = (origWriter & 0x0000_000F_FFFF_FFFFL);
+
+        return ((writerRound == readerRound) && (writerPos == readerPos));
     }
 }
 
