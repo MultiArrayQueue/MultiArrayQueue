@@ -714,16 +714,35 @@ public class ConcurrentMultiArrayQueue<T>
             // We are moving forward by exactly that one "move". The above order of reads ensures that we know about
             // (and do not miss) the eventual diversion created by the writer that went ahead of us by that one "move".
             //
-            // diversions created by later writers would not stand "in our way". The writer could only reach "our way" again
-            // one round later and that would mean that readerPosition must have moved too, so the CAS would fail (good!)
-            //
-            // would it be possible that we jump over the writer in the course of going over the diversions forward?
+            // would it be possible that we overtake the writer in the course of "cascading" over the diversions forward?
             // (asking also because the writer first writes the new diversion and then only it updates writerPosition).
-            // answer no: We (the reader) move forward only if we see that we can do so, based on the writerPosition.
-            // The writer does not (temporarily) step onto the entry side of the diversion it creates.
-            // If we see a writer on an entry side of a diversion then that would mean that "our" origWriter is old
-            // (i.e. from the previous round or even earlier) and then also "our" origReader would be old,
-            // so the CAS would fail (good!).
+            //
+            // Let's think through that and gain some extra insights:
+            //
+            //    As a diversion always leads to beginning of an array, an eventual "cascade" can only have this form:
+            //
+            //    rings [x][y] --> rings [m][0] --> rings [n][0] --> rings [p][0] --> ...
+            //
+            //    The extension operation consists of allocation of a new array, registering the respective diversion
+            //    and going to the first element of the new array. From this follows that an eventual "cascade"
+            //    can get prolonged at most by one in any given round.
+            //
+            //    The writer does not (temporarily) step onto the entry side of the diversion it creates,
+            //    nor onto any place in the middle of the "cascade".
+            //
+            //    We (the reader) move forward only if we see that we can do so, based on the writerPosition.
+            //    If we cannot move, we immediately return "Queue is empty" (without even reading ringsMaxIndex).
+            //
+            //    Only after we see that we do not stand on the writer, we move forward, that might include the "cascading"
+            //    until we arrive at the first element of the new array. If we pass along the writer during this "cascading",
+            //    then it can only be the writer on the return path of a diversion.
+            //
+            //    To construct a case where we would genuinely overtake the writer: We would capture the readerPosition
+            //    and writerPosition and then get preempted. During that time things in the Queue move forward by at least
+            //    one round and the "cascade" gets prolonged. Then we wake up, read ringsMaxIndex and see the prolonged "cascade".
+            //    If "our" writer sits in the middle of the now prolonged "cascade", then "our" reader could overtake it.
+            //    But this whole means that "our" origWriter would be at least one round old, and then also "our" origReader
+            //    would be old, so the CAS would fail (good!).
             //
             // the last interesting situation is when a writer has hit us "from behind" and created a new diversion
             // on that place - also we suddenly appear on the return path of the just-inserted new diversion.
