@@ -347,15 +347,15 @@ public class BlockingMultiArrayQueue<T>
                     //
                     // a diversion that leads to an array of Objects always precedes (in the diversions array) any diversions
                     // that lead from that array of Objects, so one bottom-up pass through the diversions array
-                    // that starts at 1 + writerRix suffices (i.e. a short linear search)
+                    // that starts at the diversion to 1 + writerRix suffices (i.e. a short linear search)
 
-                    for (int rix = (1 + writerRix); rix <= rixMax; rix ++)
+                    for (int dix = writerRix; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                     {
-                        if (diversions[rix - 1] == writerPos)
+                        if (diversions[dix] == writerPos)
                         {
-                            writerPos = ((long) rix);  // move to the first element of the array of Objects the diversion leads to
-                            writerRix = rix;
+                            writerRix = 1 + dix;  // move to the first element of the array of Objects the diversion leads to
                             writerIx  = 0;
+                            writerPos = ((long) writerRix);
                         }
                     }
 
@@ -427,9 +427,9 @@ public class BlockingMultiArrayQueue<T>
                 int rixMaxNew = 1 + rixMax;
 
                 // impossible for writerPos to be already in the diversions array, but better check ...
-                for (int rix = 1; rix <= rixMax; rix ++)
+                for (int dix = 0; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                 {
-                    if (diversions[rix - 1] == writerPos)
+                    if (diversions[dix] == writerPos)
                     {
                         throw new AssertionError(String.format(
                             "%s %s: duplicity in the diversions array (0x%X 0x%X 0x%X)",
@@ -554,15 +554,15 @@ public class BlockingMultiArrayQueue<T>
                 //
                 // a diversion that leads to an array of Objects always precedes (in the diversions array) any diversions
                 // that lead from that array of Objects, so one bottom-up pass through the diversions array
-                // that starts at 1 + readerRix suffices (i.e. a short linear search)
+                // that starts at the diversion to 1 + readerRix suffices (i.e. a short linear search)
 
-                for (int rix = (1 + readerRix); rix <= rixMax; rix ++)
+                for (int dix = readerRix; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                 {
-                    if (diversions[rix - 1] == readerPos)
+                    if (diversions[dix] == readerPos)
                     {
-                        readerPos = ((long) rix);  // move to the first element of the array of Objects the diversion leads to
-                        readerRix = rix;
+                        readerRix = 1 + dix;  // move to the first element of the array of Objects the diversion leads to
                         readerIx  = 0;
+                        readerPos = ((long) readerRix);
                     }
                 }
                 break go_forward;  // prospective move forward is now done

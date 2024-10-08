@@ -434,15 +434,15 @@ public class ConcurrentMultiArrayQueue<T>
                 //
                 // a diversion that leads to an array of Objects always precedes (in the diversions array) any diversions
                 // that lead from that array of Objects, so one bottom-up pass through the diversions array
-                // that starts at 1 + writerRix suffices (i.e. a short linear search)
+                // that starts at the diversion to 1 + writerRix suffices (i.e. a short linear search)
 
-                for (int rix = (1 + writerRix); rix <= rixMax; rix ++)
+                for (int dix = writerRix; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                 {
-                    if (diversions[rix - 1] == writerPos)
+                    if (diversions[dix] == writerPos)
                     {
-                        writerPos = ((long) rix);  // move to the first element of the array of Objects the diversion leads to
-                        writerRix = rix;
+                        writerRix = 1 + dix;  // move to the first element of the array of Objects the diversion leads to
                         writerIx  = 0;
+                        writerPos = ((long) writerRix);
                     }
                 }
 
@@ -511,9 +511,9 @@ public class ConcurrentMultiArrayQueue<T>
                     try
                     {
                         // impossible for writerPos to be already in the diversions array, but better check ...
-                        for (int rix = 1; rix <= rixMax; rix ++)
+                        for (int dix = 0; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                         {
-                            if (diversions[rix - 1] == writerPos)
+                            if (diversions[dix] == writerPos)
                             {
                                 throw new AssertionError(String.format(
                                     "%s %s: duplicity in the diversions array (0x%X 0x%X 0x%X)",
@@ -741,8 +741,8 @@ public class ConcurrentMultiArrayQueue<T>
             //    and writerPosition and then get preempted. During that time things in the Queue move forward by at least
             //    one round and the "cascade" gets prolonged. Then we wake up, read ringsMaxIndex and see the prolonged "cascade".
             //    If "our" writer sits in the middle of the now prolonged "cascade", then "our" reader could overtake it.
-            //    But this whole means that "our" origWriter would be at least one round old, and then also "our" origReader
-            //    would be old, so the CAS would fail (good!).
+            //    But this whole means that "our" origWriter would be (strictly) more than one round old, and then also
+            //    "our" origReader would be at least that old (because it was read first), so the CAS would fail (good!).
             //
             // the last interesting situation is when a writer has hit us "from behind" and created a new diversion
             // on that place - also we suddenly appear on the return path of the just-inserted new diversion.
@@ -783,15 +783,15 @@ public class ConcurrentMultiArrayQueue<T>
                 //
                 // a diversion that leads to an array of Objects always precedes (in the diversions array) any diversions
                 // that lead from that array of Objects, so one bottom-up pass through the diversions array
-                // that starts at 1 + readerRix suffices (i.e. a short linear search)
+                // that starts at the diversion to 1 + readerRix suffices (i.e. a short linear search)
 
-                for (int rix = (1 + readerRix); rix <= rixMax; rix ++)
+                for (int dix = readerRix; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                 {
-                    if (diversions[rix - 1] == readerPos)
+                    if (diversions[dix] == readerPos)
                     {
-                        readerPos = ((long) rix);  // move to the first element of the array of Objects the diversion leads to
-                        readerRix = rix;
+                        readerRix = 1 + dix;  // move to the first element of the array of Objects the diversion leads to
                         readerIx  = 0;
+                        readerPos = ((long) readerRix);
                     }
                 }
                 break go_forward;  // prospective move forward is now done
