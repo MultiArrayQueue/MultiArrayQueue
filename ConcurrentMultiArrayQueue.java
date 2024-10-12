@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * ConcurrentMultiArrayQueue is a simple, optionally bounded or unbounded, multiple-writer multiple-reader
- * thread-safe and (by itself) garbage-free Queue of Objects for Java.
+ * thread-safe and (by itself) garbage-free FIFO Queue of Objects for Java.
  *
  * <p>The Multi-Array Queue is described in the Paper available at
  * <a href="https://MultiArrayQueue.github.io/Paper_MultiArrayQueue.pdf">https://MultiArrayQueue.github.io/Paper_MultiArrayQueue.pdf</a>.
@@ -51,7 +51,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>ConcurrentMultiArrayQueue does not provide any iterators or size methods, because they would be
  * inherently inaccurate in multi-threaded regime and of less value.
  *
- * <p>The Queue can also be used as a pool of Objects in garbage-free environments, e.g. for recycling
+ * <p>The Queue can also be used as a pool for re-use of Objects in garbage-free environments, e.g. for recycling
  * of allocated memory blocks (of the same size), messages, connections to (the same) database and the like.
  * For differing sorts of Objects use different pools (Queues).
  *
@@ -74,8 +74,8 @@ public class ConcurrentMultiArrayQueue<T>
 
     // Array of references to actual (exponentially growing) arrays of Objects
     private final Object[][] rings;  // the actual array of arrays of Objects
-    private final int firstArraySize;  // size of rings[0] (the first array of Objects)
     private volatile int ringsMaxIndex;  // maximum index that contains an allocated array of Objects: only grows + volatile
+    private final int firstArraySize;  // size of rings[0] (the first array of Objects)
 
     // Array of diversions (to higher arrays of Objects) and Atomic writer/reader positions
     //
@@ -305,10 +305,7 @@ public class ConcurrentMultiArrayQueue<T>
             long readerRound = (origReader & 0xFFFF_FFE0_0000_0000L);
             long readerPos   = (origReader & 0x0000_000F_FFFF_FFFFL);
 
-            int rixMax = ringsMaxIndex;  // volatile read
-            boolean isQueueExtensionPossible = ((1 + rixMax) < rings.length);  // if there is room yet for the extension
-
-            // as we have not read the three volatiles atomically at one instant, we have to discuss the possible implications:
+            // as we do not read the three volatiles atomically at one instant, we have to discuss the possible implications:
             //
             // generally: this method consists of a preparation phase (where certain decisions are taken) and the execution phases
             // (that actually change state by writing the volatiles) that are guarded by the CASes (on writerPosition)
@@ -374,7 +371,7 @@ public class ConcurrentMultiArrayQueue<T>
             //    But, well: the situation IS impossible (and the contrary would have been raised to attention
             //    by the AssertionError on many other occasions), so this edge case is ok too.
 
-            int writerRix, writerIx;
+            int rixMax = -1, writerRix, writerIx;
             boolean extendQueue = false;
 
             go_forward:
@@ -406,6 +403,8 @@ public class ConcurrentMultiArrayQueue<T>
                             // if the prospective move has hit the reader (that is in the previous round) "from behind"
                             if (readerPos == writerPos)
                             {
+                                rixMax = ringsMaxIndex;  // volatile read
+                                boolean isQueueExtensionPossible = ((1 + rixMax) < rings.length);  // if there is room yet for the extension
                                 if (isQueueExtensionPossible)
                                 {
                                     // context: the writer that preceded us (the one that successfully moved to the last position
@@ -436,6 +435,8 @@ public class ConcurrentMultiArrayQueue<T>
                 // that lead from that array of Objects, so one bottom-up pass through the diversions array
                 // that starts at the diversion to 1 + writerRix suffices (i.e. a short linear search)
 
+                rixMax = ringsMaxIndex;  // volatile read
+
                 for (int dix = writerRix; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                 {
                     if (diversions[dix] == writerPos)
@@ -451,6 +452,7 @@ public class ConcurrentMultiArrayQueue<T>
                     // if the prospective move has hit the reader (that is in the previous round) "from behind"
                     if (readerPos == writerPos)
                     {
+                        boolean isQueueExtensionPossible = ((1 + rixMax) < rings.length);  // if there is room yet for the extension
                         if (isQueueExtensionPossible)
                         {
                             extendQueue = true;
@@ -475,6 +477,7 @@ public class ConcurrentMultiArrayQueue<T>
                             testNextWriterPos = diversions[testNextWriterRix - 1];  // follow the diversion back
                             if (readerPos == testNextWriterPos)  // if we would hit the reader
                             {
+                                boolean isQueueExtensionPossible = ((1 + rixMax) < rings.length);  // if there is room yet for the extension
                                 if (isQueueExtensionPossible)
                                 {
                                     extendQueue = true;
@@ -506,7 +509,6 @@ public class ConcurrentMultiArrayQueue<T>
                     // would be useless (even useless for any future extensions).
 
                     boolean inProgressFlagCleared = false;
-                    int rixMaxNew = 1 + rixMax;
 
                     try
                     {
@@ -521,13 +523,15 @@ public class ConcurrentMultiArrayQueue<T>
                             }
                         }
 
+                        int rixMaxNew = 1 + rixMax;
+
                         // allocate new array of Objects of size firstArraySize * (2 ^ ringsIndex)
                         Object[] newArray = new Object[firstArraySize << rixMaxNew];
 
                         rings[rixMaxNew] = newArray;  // put its reference into rings
                         newArray[0] = object;  // put Object into the first array element of the new array
 
-                        diversions[rixMaxNew - 1] = writerPos;  // the new diversion = the prospective writer position
+                        diversions[rixMax] = writerPos;  // the new diversion (index rixMaxNew - 1) = the prospective writer position
 
                         ringsMaxIndex = rixMaxNew;  // increment ringsMaxIndex (volatile write AFTER writes to rings and diversions)
 
@@ -693,9 +697,7 @@ public class ConcurrentMultiArrayQueue<T>
                 return null;  // the reader stands on the writer: the Queue is empty
             }
 
-            int rixMax = ringsMaxIndex;  // volatile read
-
-            // as we have not read the three volatiles atomically at one instant, we have to discuss the possible implications
+            // as we do not read the three volatiles atomically at one instant, we have to discuss the possible implications
             // (for more general comments see the enqueue method)
             //
             // readerPosition --> (time lag) --> writerPosition --> (preparation phase) --> CAS
@@ -784,6 +786,8 @@ public class ConcurrentMultiArrayQueue<T>
                 // a diversion that leads to an array of Objects always precedes (in the diversions array) any diversions
                 // that lead from that array of Objects, so one bottom-up pass through the diversions array
                 // that starts at the diversion to 1 + readerRix suffices (i.e. a short linear search)
+
+                int rixMax = ringsMaxIndex;  // volatile read
 
                 for (int dix = readerRix; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                 {
