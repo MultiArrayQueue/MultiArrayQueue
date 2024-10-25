@@ -39,9 +39,9 @@
  verification data
  *********************************************/
 
-#define PREFILL_STEPS 0
+#define PREFILL_STEPS 6
 
-int prefill[5] = { 1, 0, 1, 1, 1 }  // 1 = enqueue, 0 = dequeue
+int prefill[6] = { 1, 1, 1, 1, 1, 1 }  // 1 = enqueue, 0 = dequeue
 
 #define WRITERS 2
 #define READERS 2
@@ -57,10 +57,13 @@ int cntDequeueEmpty = 0;
  *********************************************/
 
 #define FIRST_ARRAY_SIZE 1
-#define CNT_ALLOWED_EXTENSIONS 4
+#define CNT_ALLOWED_EXTENSIONS 2
 
 // MAX_ARRAY_SIZE = FIRST_ARRAY_SIZE * (2 ^ CNT_ALLOWED_EXTENSIONS)
-#define MAX_ARRAY_SIZE 16
+#define MAX_ARRAY_SIZE 4
+
+// TOTAL_CAPACITY = SUM( SIZES OF ALL ARRAYS ) - 1
+#define TOTAL_CAPACITY (1+2+4-1)
 
 typedef array {
     int element[MAX_ARRAY_SIZE];  // under-utilized except of the last array
@@ -101,6 +104,8 @@ proctype enqueue()
     int  readerRound;  // reader
     int  readerRix;
     int  readerIx;
+    int  cntEnqueuedOnLPFull;
+    int  cntDequeuedOnLPFull;
     int  rixMax;
     bool isQueueExtensionPossible;
     bool extendQueue;
@@ -137,6 +142,10 @@ start_anew : skip;
         readerIx    = readerPositionIx;
         assert(readerIx < (FIRST_ARRAY_SIZE << readerRix));
         assert(writerRound <= (readerRound + 1));
+
+        // linearization point for Queue full: remember cntEnqueued, cntDequeued
+        cntEnqueuedOnLPFull = cntEnqueued;
+        cntDequeuedOnLPFull = cntDequeued;
     }
 
     /*TLWACCH*/
@@ -291,7 +300,7 @@ go_forward_done :  // prospective move forward is now done
     {
         cntEnqueueFull ++;
         printf("PID %d found the Queue full on enqueue\n", _pid);
-        // in the concurrent program code, here it cannot be asserted that TOTAL_CAPACITY == (cntEnqueued - cntDequeued)
+        assert(TOTAL_CAPACITY == (cntEnqueuedOnLPFull - cntDequeuedOnLPFull));  // must compare with counts from the linearization point!
     }
     :: (extendQueue) ->
     {
@@ -326,10 +335,10 @@ go_forward_done :  // prospective move forward is now done
                     fi
                 }
 
-                // here we are at the order-defining point, so increment cntEnqueued and enqueue it
-                cntEnqueued ++;
-                rings[rixMaxNew].element[0] = cntEnqueued;  // enqueue into the first array element of the new array
-                printf("PID %d extended Queue and enqueued %d in rings[%d][%d]\n", _pid, cntEnqueued, rixMaxNew, 0);
+                // here the actual program code writes into the first array element of the new array,
+                // so we model it by preliminarily writing a wrong value that would throw the FIFO order assertion error
+                // if indeed dequeued (and update it to the correct value later on the linearization point)
+                rings[rixMaxNew].element[0] = -1;
 
                 diversions[rixMaxNew - 1].rix = writerRix;  // the new diversion = the prospective writer position
                 diversions[rixMaxNew - 1].ix  = writerIx;
@@ -347,8 +356,13 @@ go_forward_done :  // prospective move forward is now done
 
         /*TLWACCH*/
 
-        d_step
+        d_step  // concluding CAS of the extension operation
         {
+            // here is the linearization point, so increment cntEnqueued and write it to the array
+            cntEnqueued ++;
+            rings[rixMaxNew].element[0] = cntEnqueued;  // update to correct value the first array element of the new array
+            printf("PID %d extended Queue and enqueued %d in rings[%d][%d]\n", _pid, cntEnqueued, rixMaxNew, 0);
+
             writerPositionRound = writerRound;  // write the writer position
             writerPositionFlag = false;
             writerPositionRix = rixMaxNew;  // new writer position = first array element of the new array
@@ -401,7 +415,7 @@ writer_cas :
                 writerPositionRix = writerRix;
                 writerPositionIx = writerIx;
 
-                // here we are on the order-defining point, so increment and remember cntEnqueued
+                // here is the linearization point, so increment and remember cntEnqueued
                 cntEnqueued ++;
                 valueToEnqueue = cntEnqueued;
                 printf("PID %d enqueued %d in rings[%d][%d]\n", _pid, valueToEnqueue, writerRix, writerIx);
@@ -468,13 +482,14 @@ start_anew : skip;
         assert(writerIx < (FIRST_ARRAY_SIZE << writerRix));
         assert(readerRound <= writerRound);
 
+        // linearization point for Queue empty
         // if the reader stands on the writer: the Queue is empty
         if
         :: ((writerRound == readerRound) && (writerRix == readerRix) && (writerIx == readerIx)) ->
         {
             cntDequeueEmpty ++;
             printf("PID %d found the Queue empty on dequeue\n", _pid);
-            // in the concurrent program code, here it cannot be asserted that 0 == (cntEnqueued - cntDequeued)
+            assert(0 == (cntEnqueued - cntDequeued));
             goto dequeue_done;
         }
         :: else;
@@ -580,7 +595,7 @@ reader_cas :
             readerPositionRix = readerRix;
             readerPositionIx = readerIx;
 
-            // here we are on the order-defining point, so increment cntDequeued and compare it with valueDequeued
+            // here is the linearization point, so increment cntDequeued and compare it with valueDequeued
             cntDequeued ++;
             printf("PID %d dequeued %d in rings[%d][%d]\n", _pid, valueDequeued, readerRix, readerIx);
             assert(cntDequeued == valueDequeued);  // this verifies the correct FIFO order
