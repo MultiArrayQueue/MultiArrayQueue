@@ -19,7 +19,7 @@
  * Recommend to always set a memory limit, e.g.
  *
  *    spin -a ConcurrentMultiArrayQueue.pml
- *    cc -O2 -DMEMLIM=256 -o pan pan.c
+ *    cc -O2 -DMEMLIM=512 -o pan pan.c
  *    ./pan
  *
  * A random simulation with Spin, on the contrary,
@@ -41,7 +41,7 @@
 
 #define PREFILL_STEPS 6
 
-int prefill[6] = { 1, 1, 1, 1, 1, 1 }  // 1 = enqueue, 0 = dequeue
+int prefill[6] = { 1, 0, 1, 1, 0, 1 }  // 1 = enqueue, 0 = dequeue
 
 #define WRITERS 2
 #define READERS 2
@@ -51,6 +51,19 @@ int cntEnqueueFull = 0;
 
 int cntDequeued = 0;
 int cntDequeueEmpty = 0;
+
+// this can be used to remember a "stale" state from after the given pre-fill step
+// and let the concurrent writers start with this stale writerPosition and readerPosition
+
+#define STALE_DATA_STEP 3
+
+int staleWriterPositionRound = -1;
+int staleWriterPositionRix = -1;
+int staleWriterPositionIx = -1;
+
+int staleReaderPositionRound = -1;
+int staleReaderPositionRix = -1;
+int staleReaderPositionIx = -1;
 
 /*********************************************
  private data of the ConcurrentMultiArrayQueue
@@ -92,7 +105,7 @@ int  readerPositionIx = 0;
 /*********************************************
  enqueue process
  *********************************************/
-proctype enqueue()
+proctype enqueue(bool useStale)
 {
     int  origWriterRound;  // writer original
     bool origWriterFlag;
@@ -119,33 +132,61 @@ start_anew : skip;
     d_step  // block if the extension-in-progress flag is set, then read writer position
     {
         if
-        :: (! writerPositionFlag) ->
+        :: (useStale && (-1 != staleWriterPositionRound)) ->
+        {
+            origWriterRound = staleWriterPositionRound;
+            origWriterFlag  = false;
+            origWriterRix   = staleWriterPositionRix;
+            origWriterIx    = staleWriterPositionIx;
+            printf("PID %d starts with stale writerPosition (%d,%d,%d)\n",
+            _pid, origWriterRound, origWriterRix, origWriterIx);
+        }
+        :: (( !(useStale && (-1 != staleWriterPositionRound)) ) && (! writerPositionFlag)) ->
         {
             origWriterRound = writerPositionRound;
             origWriterFlag  = writerPositionFlag;
             origWriterRix   = writerPositionRix;
             origWriterIx    = writerPositionIx;
-            writerRound = origWriterRound;
-            writerRix   = origWriterRix;
-            writerIx    = origWriterIx;
-            assert(writerIx < (FIRST_ARRAY_SIZE << writerRix));
+            printf("PID %d has read writerPosition (%d,%d,%d)\n",
+            _pid, origWriterRound, origWriterRix, origWriterIx);
         }
         fi
+        writerRound = origWriterRound;
+        writerRix   = origWriterRix;
+        writerIx    = origWriterIx;
+        assert(writerIx < (FIRST_ARRAY_SIZE << writerRix));
     }
 
     /*TLWACCH*/
 
     d_step  // read reader position
     {
-        readerRound = readerPositionRound;
-        readerRix   = readerPositionRix;
-        readerIx    = readerPositionIx;
+        if
+        :: (useStale && (-1 != staleReaderPositionRound)) ->
+        {
+            readerRound = staleReaderPositionRound;
+            readerRix   = staleReaderPositionRix;
+            readerIx    = staleReaderPositionIx;
+            printf("PID %d starts with stale readerPosition (%d,%d,%d)\n",
+            _pid, readerRound, readerRix, readerIx);
+        }
+        :: else ->
+        {
+            readerRound = readerPositionRound;
+            readerRix   = readerPositionRix;
+            readerIx    = readerPositionIx;
+            printf("PID %d has read readerPosition (%d,%d,%d)\n",
+            _pid, readerRound, readerRix, readerIx);
+        }
+        fi
         assert(readerIx < (FIRST_ARRAY_SIZE << readerRix));
         assert(writerRound <= (readerRound + 1));
 
         // linearization point for Queue full: remember cntEnqueued, cntDequeued
         cntEnqueuedOnLPFull = cntEnqueued;
         cntDequeuedOnLPFull = cntDequeued;
+
+        useStale = false;  // stale state is used only initially
     }
 
     /*TLWACCH*/
@@ -153,6 +194,7 @@ start_anew : skip;
     d_step  // read ringsMaxIndex + work on local variables + read diversions up to ringsMaxIndex
     {
         rixMax = ringsMaxIndex;
+        printf("PID %d has read ringsMaxIndex %d\n", _pid, rixMax);
 
         isQueueExtensionPossible = (rixMax < CNT_ALLOWED_EXTENSIONS);  // if there is room yet for the extension
         extendQueue = false;
@@ -636,7 +678,7 @@ init
         if
         :: (1 == prefill[idx]) ->
         {
-            pids[0] = run enqueue();
+            pids[0] = run enqueue(false);
             printf("init: pre-fill enqueue process %d\n", pids[0]);
         }
         :: else ->
@@ -649,6 +691,21 @@ init
         // join process
         (_nr_pr <= pids[0]);
         printf("init: joined pre-fill process %d\n", pids[0]);
+
+        // remember the stale state if desired
+        if
+        :: (STALE_DATA_STEP == idx) ->
+        {
+            staleWriterPositionRound = writerPositionRound;
+            staleWriterPositionRix = writerPositionRix;
+            staleWriterPositionIx = writerPositionIx;
+
+            staleReaderPositionRound = readerPositionRound;
+            staleReaderPositionRix = readerPositionRix;
+            staleReaderPositionIx = readerPositionIx;
+        }
+        :: else;
+        fi
     }
 
     int prefillCntEnqueued     = cntEnqueued;
@@ -661,7 +718,7 @@ init
     {
         for (idx: 0 .. (WRITERS - 1))
         {
-            pids[idx] = run enqueue();
+            pids[idx] = run enqueue(true);
             printf("init: enqueue process %d\n", pids[idx]);
         }
         for (idx: WRITERS .. (WRITERS + READERS - 1))
