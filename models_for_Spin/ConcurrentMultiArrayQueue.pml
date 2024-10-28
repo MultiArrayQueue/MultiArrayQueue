@@ -39,12 +39,12 @@
  verification data
  *********************************************/
 
-#define PREFILL_STEPS 6
+#define PREFILL_STEPS 4
 
-int prefill[6] = { 1, 0, 1, 1, 0, 1 }  // 1 = enqueue, 0 = dequeue
+int prefill[4] = { 1, 0, 1, 1 }  // 1 = enqueue, 0 = dequeue
 
-#define WRITERS 2
-#define READERS 2
+#define WRITERS 3
+#define READERS 1
 
 int cntEnqueued = 0;
 int cntEnqueueFull = 0;
@@ -55,7 +55,7 @@ int cntDequeueEmpty = 0;
 // this can be used to remember a "stale" state from after the given pre-fill step
 // and let the concurrent writers start with this stale writerPosition and readerPosition
 
-#define STALE_DATA_STEP 3
+#define STALE_DATA_STEP -1
 
 int staleWriterPositionRound = -1;
 int staleWriterPositionRix = -1;
@@ -394,7 +394,11 @@ go_forward_done :  // prospective move forward is now done
 
         /*TLWACCH*/
 
-        ringsMaxIndex = rixMaxNew;  // increment ringsMaxIndex (makes the work on rings and diversions visible)
+        d_step
+        {
+            ringsMaxIndex = rixMaxNew;  // increment ringsMaxIndex (makes the work on rings and diversions visible)
+            printf("PID %d incremented ringsMaxIndex to %d\n", _pid, rixMaxNew);
+        }
 
         /*TLWACCH*/
 
