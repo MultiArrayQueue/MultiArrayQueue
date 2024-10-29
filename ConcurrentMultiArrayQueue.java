@@ -274,6 +274,8 @@ public class ConcurrentMultiArrayQueue<T>
         // Before reading this program it might be easier to read BlockingMultiArrayQueue
         // (that is free of the temporal intricacies that must handled by this concurrent code)
 
+        boolean recheckFromFullyExtended = false;
+
         start_anew:
         for (;;)
         {
@@ -457,9 +459,31 @@ public class ConcurrentMultiArrayQueue<T>
                         {
                             extendQueue = true;
                         }
-                        else
+                        else  // the Queue is now fully extended (but might not have been at the reading of origWriter)
                         {
-                            return false;  // Queue is full
+                            // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
+                            if (recheckFromFullyExtended)  // we have already re-checked from here, i.e. from the fully extended state
+                            {
+                                return false;  // Queue is full
+                            }
+                            else
+                            {
+                                int origWriterRix = (int) (origWriter & 0x0000_0000_0000_001FL);
+                                if (rings.length == (1 + origWriterRix))  // then origWriter must be from the fully extended state
+                                {
+                                    return false;  // Queue is full
+                                }
+                                // if writerPosition has not changed, then origWriter must be from the fully extended state (as we are now)
+                                else if (origWriter == writerPosition.get())  // volatile read
+                                {
+                                    return false;  // Queue is full
+                                }
+                                else  // origWriter is potentially stale from a past extension state of the Queue --> Start anew
+                                {
+                                    recheckFromFullyExtended = true;
+                                    continue start_anew;
+                                }
+                            }
                         }
                     }
 
