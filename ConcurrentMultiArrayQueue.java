@@ -890,5 +890,162 @@ public class ConcurrentMultiArrayQueue<T>
 
         return ((writerRound == readerRound) && (writerPos == readerPos));
     }
+
+    /* _    _ _  _ ____ ____ ____ _ ___  ____ ___  _ _    _ ___ _   _
+       |    | |\ | |___ |__| |__/ |   /  |__| |__] | |    |  |   \_/
+       |___ | | \| |___ |  | |  \ |  /__ |  | |__] | |___ |  |    |
+
+    Linearizability (mainly by Herlihy and Wing) is an important concept in proving correctness of concurrent algorithms.
+
+    In practical terms, linearizability condenses to establishing linearization points, which are indivisible points in time
+    at which the operations instantaneously take effect.
+
+    The idea is that by ordering the concurrently running operations by their linearization points, one obtains
+    a linear (i.e. sequential / single threaded) execution history of that operations that give the same results.
+
+    It is advantageous to prove linearizability theoretically via the linearization points,
+    not only because it provides insights, but also because testing it experimentally may be intractable:
+    Imagine a situation with 10 threads running operations on the Queue concurrently. With how many linear execution histories
+    (permutations) of the 10 operations one would have to compare the results: 10! = 3,6 million.
+
+    In the following we identify the linearization points of all Operations and prove that if any actions occur
+    outside of the linearization points (i.e. not atomically with them), then that actions are either irrelevant
+    to the concurrent Operations or correctly handled in them.
+
+    The proofs are given in Plain English without mathematical formalisms.
+
+    Operation 1: The regular Enqueue (without Queue extension)
+    ----------------------------------------------------------
+
+    The linearization point is the successful CAS on writerPosition that exchanges the
+    original writer position against the newly prepared (prospective) writer position.
+
+    Nothing happens before this linearization point (except of reads and work on local variables).
+
+    After this linearization point the Object is actually written to the respective array (on the new writerPosition).
+    This does not go atomically together with the CAS! So let's investigate it:
+
+    This ex-post write is irrelevant to concurrent Operations 1, 2, 3 and 5, but is relevant to Operation 4
+    that would need to Dequeue that Object:
+
+    Operation 4 handles this by program code the allows it to reach its CAS on readerPosition (its own linearization point)
+    only after it has seen that the Object was actually written to that position in the array.
+
+    A more complete picture is that the following four-state diagram (for each array position) is in place:
+
+    1. Operation 1 moves writerPosition to the position via its CAS (introducing a short-lived state in spot A of the writer)
+    2. Operation 1 actually writes the Object to the position
+    3. Operation 4 moves readerPosition to the position via its CAS (introducing a short-lived state in spot B of the reader)
+    4. Operation 4 actually reads and clears the Object from the position
+
+    Operation 2. The Enqueue with Queue extension
+    ---------------------------------------------
+
+    The linearization point is the successful CAS on writerPosition that exchanges the
+    original writer position against the new writer position that is the first element of the new array.
+
+    Note that this CAS only concludes the previous (non-atomic) series of steps of the extension of the Queue
+    which begins with the opening CAS (that implants the extension-in-progress flag into the writerPosition,
+    thus locking-out eventual concurrent Operations 1 and 2). Of the mentioned extension steps,
+    the allocation of the new array is the one that may (theoretically) fail, in which case the program code
+    reverts the opening CAS. Hence, it is the concluding CAS that must be the linearization point.
+
+    This concluding CAS is the last step of the Operation.
+
+    There is however one write before the concluding CAS (but after the opening CAS) that may be relevant
+    to concurrent Operations: The increment of ringsMaxIndex (that in turn exposes the new array and the new diversion
+    to the other Operations)! Let's investigate it:
+
+    * Impact on concurrent Operations 1 and 2: The increment of ringsMaxIndex is enclosed between the opening CAS
+      and the concluding CAS (both on writerPosition). Operations 1 and 2 start their processing only if they
+      (at the beginning) have read a writerPosition that was without the extension-in-progress flag,
+      and their CASes check if writerPosition has not changed since. So the increment of ringsMaxIndex cannot go
+      unnoticed by the concurrent Operations 1 and 2 (their CASes will fail (good!), so they will start anew).
+
+    * Impact on concurrent Operation 3: This Operation is not guarded by a CAS. On the other hand, it "just"
+      needs to know that it has read writerPosition and readerPosition from the fully extended state of the Queue
+      (which is its terminal state). Details on obtaining that assurance under a possible concurrent scenario
+      are outlined under Operation 3.
+
+    * Impact on concurrent Operation 4: New diversions are created in the gap between the writerPosition
+      and the readerPosition (that is in the previous round). Three situations are possible:
+
+    ** The most probable situation is that the readerPosition suddenly appears on the return path of the just-inserted
+       new diversion. Here it is irrelevant if Operation 4 sees the new diversion or not, because for leaving that place
+       it does not need that information.
+
+    ** The opposite extreme (possible, especially in the initial phases) is that the readerPosition stands on the writerPosition
+       from which the Operation 2 starts. Then as long as Operation 2 has not moved writerPosition forward, Operation 4 cannot start
+       and the outcome is "Queue is empty". Operation 2 moves writerPosition forward as the last step of the extension of the Queue.
+       Only then Operation 4 starts its processing, and because it reads ringsMaxIndex after having read writerPosition, it will see
+       the incremented ringsMaxIndex and will not miss the newly created diversion.
+
+    ** If the readerPosition is between these two extremes, then it is irrelevant if Operation 4 sees the incremented ringsMaxIndex
+       or not, because it cannot encounter the entry side of the newly created diversion in that range.
+
+    * Impact on concurrent Operation 5: no impact (it does not evaluate ringsMaxIndex)
+
+    Last remark on Operation 2: The distinction between "extend Queue" and "Queue is full" is controlled by ringsMaxIndex
+    as well (whether it is below its maximum or at its maximum). As ringsMaxIndex only grows, chances are that Operation 2
+    has read its below-maximum value but "now" it is at its maximum value. In that concurrent case "extend Queue" will be chosen,
+    of which the CAS will fail (good!) for reasons already discussed.
+
+    Operation 3. A failed Enqueue (due to full Queue)
+    -------------------------------------------------
+
+    This outcome is reached if the prospective new writer position hits the readerPosition (that is in the previous round)
+    "from behind". In other words: readerPosition is one step ahead in the previous round (diversions considered).
+
+    Because writerPosition is read first, and both positions can only move forward,
+    and writerPosition can never catch the readerPosition in the previous round,
+    that condition means that the writerPosition must not have moved forward between the two reads.
+
+    So the second read is the linearization point and at that instant the Queue must have indeed been full
+    (i.e. the difference between the counts of successful Enqueue CASes and successful Dequeue CASes
+    at that instant must have been equal to the maximum capacity of the Queue).
+
+    This all must have happened in a situation when the Queue was already fully extended and the writerPosition
+    (and then implicitly also the readerPosition (because read second)) has been read from that state of the Queue.
+
+    If the last mentioned circumstance cannot be assured from the data at the respective spot in the program code,
+    the Operation starts anew and in the second iteration that assurance is given (because the Queue never shrinks).
+
+    If the "hit from behind" scenario occurs against a readerPosition that is on the return path of a diversion,
+    then the "Queue fully extended" condition is implicitly given, due to the forward-looking feature of the writer (see Paper).
+    The program code however still (can be removed in the future) evaluates (simplistically) the condition in order to throw
+    an AssertionError when violated (more precisely (keeping in mind a possible concurrent scenario): when violated without doubt
+    from the data at the respective spot).
+
+    Operation 4. The regular Dequeue
+    --------------------------------
+
+    The linearization point is the successful CAS on readerPosition that exchanges the
+    original reader position against the newly prepared (prospective) reader position.
+
+    Nothing happens before this linearization point (except of reads and work on local variables).
+
+    After this linearization point the Object is actually read and cleared from the respective array (on the new readerPosition).
+    This does not go atomically together with the CAS! So let's investigate it:
+
+    This ex-post write is irrelevant to concurrent Operations 2, 3, 4 and 5, but is relevant to Operation 1
+    (in the next round) that would need to re-use that array position for a new Enqueue:
+
+    Operation 1 handles this by program code the allows it to reach its CAS on writerPosition (its own linearization point)
+    only after it has seen that the Object was actually cleared from that position in the array.
+
+    Operation 5. A failed Dequeue (due to empty Queue)
+    --------------------------------------------------
+
+    This outcome is reached if readerPosition stands on the writerPosition in the same round
+    (the extension-in-progress flag not considered).
+
+    Because readerPosition is read first, and both positions can only move forward,
+    and readerPosition can never get ahead of the writerPosition in the same round,
+    that equality means that the readerPosition must not have moved forward between the two reads.
+
+    So the second read is the linearization point and at that instant the Queue must have indeed been empty
+    (i.e. the count of successful Enqueue CASes must have been equal to the count of successful Dequeue CASes
+    at that instant).
+    */
 }
 
