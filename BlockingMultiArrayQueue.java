@@ -44,8 +44,6 @@ import java.util.concurrent.locks.Condition;
  * <p>If you require a concurrent variant of this Queue (based on atomic Compare-And-Swap (CAS) instructions),
  * use {@code ConcurrentMultiArrayQueue} instead.
  *
- * <p>BlockingMultiArrayQueue does not provide any iterators or size methods.
- *
  * <p>The Queue can also be used as a pool for re-use of Objects in garbage-free environments, e.g. for recycling
  * of allocated memory blocks (of the same size), messages, connections to (the same) database and the like.
  * For differing sorts of Objects use different pools (Queues).

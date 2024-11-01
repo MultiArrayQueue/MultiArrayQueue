@@ -48,9 +48,6 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>If you require a blocking variant of this Queue (based on {@code ReentrantLock}) that also allows for waiting
  * (if the Queue is empty on dequeue or full on enqueue), use {@code BlockingMultiArrayQueue} instead.
  *
- * <p>ConcurrentMultiArrayQueue does not provide any iterators or size methods, because they would be
- * inherently inaccurate in multi-threaded regime and of less value.
- *
  * <p>The Queue can also be used as a pool for re-use of Objects in garbage-free environments, e.g. for recycling
  * of allocated memory blocks (of the same size), messages, connections to (the same) database and the like.
  * For differing sorts of Objects use different pools (Queues).
@@ -307,72 +304,6 @@ public class ConcurrentMultiArrayQueue<T>
             long readerRound = (origReader & 0xFFFF_FFE0_0000_0000L);
             long readerPos   = (origReader & 0x0000_000F_FFFF_FFFFL);
 
-            // as we do not read the three volatiles atomically at one instant, we have to discuss the possible implications:
-            //
-            // generally: this method consists of a preparation phase (where certain decisions are taken) and the execution phases
-            // (that actually change state by writing the volatiles) that are guarded by the CASes (on writerPosition)
-            //
-            // in the argumentation below we must respect that after having read the three volatiles, "our" values
-            // are "loosened" from the "current" state (in the "now" sense), so e.g. we might report "Queue is full"
-            // although just "now" (e.g. at the instant of return from the method) space has become available
-            //
-            // writerPosition --> (time lag) --> readerPosition --> (preparation phase) --> CASes
-            // ----------------------------------------------------------------------------------
-            // we see a readerPosition that is newer (or the same) than it was at the instant when we have read the writerPosition
-            //
-            // during the time lag the readerPosition might have moved forward and might even have overtaken "our" origWriter
-            // in the next round (in which case the writerPosition must have moved too, so the CASes would fail (good!))
-            //
-            // the lesson however is: in the decisions about reporting "Queue is full" we must compare
-            // not only the positions but also the rounds!
-            //
-            // writerPosition --> (time lag) --> ringsMaxIndex --> (preparation phase) --> CASes
-            // --------------------------------------------------------------------------------
-            // this order means that we DO see the eventual diversion created by the writer that brought writerPosition
-            // to the place from which we start (which would be in the new array already)
-            //
-            // what if an eventual later writer created a diversion during the time lag (i.e. we DO see the incremented ringsMaxIndex):
-            // - we WOULD use that diversion while moving forward
-            // - because writerPosition must have moved forward in that case, our CASes would fail (good!)
-            // - in that situation: what if we hit the reader (that is in the previous round) "from behind":
-            // -- if "our" isQueueExtensionPossible is false, we report "Queue is full" (correct: this means
-            //    that the final set of diversions was at our disposal and we have hit the reader nevertheless).
-            //    And: isQueueExtensionPossible being false is a terminal state (it never becomes true anymore).
-            // -- if "our" isQueueExtensionPossible is true, we attempt to extend the Queue (of which the CAS will fail (good!))
-            //
-            // what if an eventual later writer created a diversion during the preparation phase (i.e. we DO NOT see
-            // the incremented ringsMaxIndex):
-            // - we WILL NOT use that diversion while moving forward, so caution:
-            // - because writerPosition must have moved forward in that case, our CASes would fail (good!)
-            // - because an extension was created AFTER we have read ringsMaxIndex, we MUST have isQueueExtensionPossible true,
-            //   so when we hit the reader "from behind" (possibly falsely due to not seeing a diversion) we will always attempt
-            //   to extend the Queue (of which the CAS will fail (good!))
-            //
-            // combination of the two cases above (of which the latter case must be the last):
-            // argumentation from the latter case applies
-            //
-            // if none of the cases above occurred, we have a ringsMaxIndex (and isQueueExtensionPossible) that corresponds
-            // to "our" origWriter
-            //
-            // the above argumentation applies to the forward-looking check too, the only difference is
-            // that "do nothing" is the analogon to reporting "Queue is full" on that place
-            //
-            // the last place to discuss is where we have hit the reader "from behind" on the return path of a diversion:
-            // this is a specific situation where we go exactly one step "back" on the return path of the diversion
-            // that has (historically) brought us to the array where we currently are (i.e. known to us for sure),
-            // so we are not concerned about new diversions created by eventual later writers
-            // but only about isQueueExtensionPossible:
-            // - if "our" isQueueExtensionPossible is true, then it must have been true at the volatile reads
-            //   of the writer/reader positions as well and we have the impossible situation to rightly throw the AssertionError
-            // - if "our" isQueueExtensionPossible is false, then we have two possibilities:
-            // -- it has been false too at the instant when we have read the writerPosition: in that case we correctly
-            //    report "Queue is full"
-            // -- it has been true at the instant when we have read the writerPosition but was false at the instant
-            //    when we have read ringsMaxIndex: so yes - this still is the impossible situation that we guard
-            //    with the AssertionError, but here we would report "Queue is full" instead.
-            //    But, well: the situation IS impossible (and the contrary would have been raised to attention
-            //    by the AssertionError on many other occasions), so this edge case is ok too.
-
             int rixMax = -1, writerRix, writerIx;
             boolean extendQueue = false;
 
@@ -562,6 +493,7 @@ public class ConcurrentMultiArrayQueue<T>
                         writerPos = ((long) rixMaxNew);  // new writer position = first array element of the new array
 
                         // AtomicLong.compareAndSet has the memory effects of both reading and writing volatile variables
+                        // according to https://docs.oracle.com/javase/8/docs/api/java/util/concurrent/atomic/package-summary.html
                         // (so no writes can get re-ordered after it)
 
                         if (! writerPosition.compareAndSet((origWriter | 0x0000_0010_0000_0000L), (writerRound | writerPos)))
@@ -573,9 +505,9 @@ public class ConcurrentMultiArrayQueue<T>
 
                         // visibility of the just-written data to other writers and readers:
                         //
-                        // we write: rings and diversions --> ringsMaxIndex (volatile) --> writerPosition (CAS)
+                        // we write: rings and diversions --> ringsMaxIndex (volatile write) --> writerPosition (CAS)
                         //
-                        // they read: writerPosition (volatile) --> ringsMaxIndex (volatile) --> rings and diversions
+                        // they read: writerPosition (AtomicLong.get()) --> ringsMaxIndex (volatile read) --> rings and diversions
                         //
                         // No our writes can get re-ordered after our CAS and no their reads can get re-ordered
                         // before their writerPosition.get()
@@ -721,27 +653,8 @@ public class ConcurrentMultiArrayQueue<T>
                 return null;  // the reader stands on the writer: the Queue is empty
             }
 
-            // as we do not read the three volatiles atomically at one instant, we have to discuss the possible implications
-            // (for more general comments see the enqueue method)
-            //
-            // readerPosition --> (time lag) --> writerPosition --> (preparation phase) --> CAS
-            // --------------------------------------------------------------------------------
-            // we see a writerPosition that is newer (or the same) than it was at the instant when we have read the readerPosition
-            //
-            // during the time lag the writerPosition might have moved forward and might even have caught "our" origReader
-            // in the next round (in which case the readerPosition must have moved too, so the CAS would fail (good!))
-            //
-            // the lesson however is: in the decision about reporting "Queue is empty" we must compare
-            // not only the positions but also the rounds!
-            //
-            // writerPosition --> (time lag) --> ringsMaxIndex --> (preparation phase) --> CAS
-            // ------------------------------------------------------------------------------
-            // we get beyond the "Queue is empty" return only if origWriter is ahead of us by at least one "move".
-            // We are moving forward by exactly that one "move". The above order of reads ensures that we know about
-            // (and do not miss) the eventual diversion created by the writer that went ahead of us by that one "move".
-            //
-            // would it be possible that we overtake the writer in the course of "cascading" over the diversions forward?
-            // (asking also because the writer first writes the new diversion and then only it updates writerPosition).
+            // An interesting question:
+            // Would it be possible that we (the reader) overtake the writer in the course of "cascading" over the diversions forward?
             //
             // Let's think through that and gain some extra insights:
             //
@@ -750,30 +663,25 @@ public class ConcurrentMultiArrayQueue<T>
             //    rings [x][y] --> rings [m][0] --> rings [n][0] --> rings [p][0] --> ...
             //
             //    The extension operation consists of allocation of a new array, registering the respective diversion
-            //    and going to the first element of the new array. From this follows that an eventual "cascade"
+            //    and moving writerPosition to the first element of the new array. From this follows that an eventual "cascade"
             //    can get prolonged at most by one in any given round.
             //
-            //    The writer does not (temporarily) step onto the entry side of the diversion it creates,
+            //    The writerPosition does not (temporarily) step onto the entry side of the diversion that is being created,
             //    nor onto any place in the middle of the "cascade".
             //
-            //    We (the reader) move forward only if we see that we can do so, based on the writerPosition.
-            //    If we cannot move, we immediately return "Queue is empty" (without even reading ringsMaxIndex).
+            //    We (the reader) move forward only if we see that we can do so, based on observing writerPosition.
+            //    If we cannot move forward, we immediately return "Queue is empty" (without even reading ringsMaxIndex).
             //
-            //    Only after we see that we do not stand on the writer, we move forward, that might include the "cascading"
+            //    Only after we have seen that we do not stand on writerPosition, we move forward, that might include the "cascading"
             //    until we arrive at the first element of the new array. If we pass along the writer during this "cascading",
             //    then it can only be the writer on the return path of a diversion.
             //
             //    To construct a case where we would genuinely overtake the writer: We would capture the readerPosition
             //    and writerPosition and then get preempted. During that time things in the Queue move forward by at least
             //    one round and the "cascade" gets prolonged. Then we wake up, read ringsMaxIndex and see the prolonged "cascade".
-            //    If "our" writer sits in the middle of the now prolonged "cascade", then "our" reader could overtake it.
+            //    If "our" origWriter sits in the middle of the now-prolonged "cascade", then "our" prospective reader could overtake it.
             //    But this whole means that "our" origWriter would be (strictly) more than one round old, and then also
             //    "our" origReader would be at least that old (because it was read first), so the CAS would fail (good!).
-            //
-            // the last interesting situation is when a writer has hit us "from behind" and created a new diversion
-            // on that place - also we suddenly appear on the return path of the just-inserted new diversion.
-            // Here it is irrelevant if we see the new diversion or not, because for leaving that place we do not need
-            // that information.
 
             int readerRix, readerIx;
 
@@ -870,6 +778,13 @@ public class ConcurrentMultiArrayQueue<T>
             }
         }
     }
+
+    // Design footnote 8: Performance-wise, as a Queue that uses CAS, the ConcurrentMultiArrayQueue
+    // presumably cannot keep up with competitor Queues that use Fetch-and-Increment.
+
+    // Design footnote 9: On machines with a high number of CPU cores, it might make sense to comment-out the Thread.yield()s.
+
+    // Design footnote 10: No countermeasures against False Sharing (like paddings) were attempted / implemented.
 
     /**
      * Concurrent isEmpty method
@@ -989,6 +904,9 @@ public class ConcurrentMultiArrayQueue<T>
     as well (whether it is below its maximum or at its maximum). As ringsMaxIndex only grows, chances are that Operation 2
     has read its below-maximum value but "now" it is at its maximum value. In that concurrent case "extend Queue" will be chosen,
     of which the CAS will fail (good!) for reasons already discussed.
+
+    This last remark applies to the forward-looking check too, the only difference is that "do nothing"
+    is the analogon to reporting "Queue is full" on that spot.
 
     Operation 3. A failed Enqueue (due to full Queue)
     -------------------------------------------------
