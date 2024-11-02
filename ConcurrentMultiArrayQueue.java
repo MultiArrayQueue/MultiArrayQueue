@@ -553,10 +553,16 @@ public class ConcurrentMultiArrayQueue<T>
                 wait_pos_cleared:
                 for (;;)
                 {
-                    if (origWriter != writerPosition.get()) continue start_anew;  // (volatile read)
+                    if (origWriter != writerPosition.get())  // (volatile read)
+                    {
+                        continue start_anew;  // writerPosition has moved --> Stop waiting, Start anew
+                    }
                     if (null == array) array = rings[writerRix];  // set array if not yet set
-                    if (null == array[writerIx]) break wait_pos_cleared;  // position is cleared, go ahead
-                    Thread.yield();  // here it is very probable that the reader is in spot B, so give him time
+                    if (null == array[writerIx])
+                    {
+                        break wait_pos_cleared;  // position is cleared, go ahead
+                    }
+                    Thread.yield();  // the reader is in spot B, so give him time
                 }
 
                 // CAS the prospective writer position
@@ -752,10 +758,16 @@ public class ConcurrentMultiArrayQueue<T>
             wait_pos_filled:
             for (;;)
             {
-                if (origReader != readerPosition.get()) continue start_anew;  // (volatile read)
+                if (origReader != readerPosition.get())  // (volatile read)
+                {
+                    continue start_anew;  // readerPosition has moved --> Stop waiting, Start anew
+                }
                 if (null == array) array = rings[readerRix];  // set array if not yet set
-                if (null != (object = array[readerIx])) break wait_pos_filled;  // position is filled, go ahead
-                Thread.yield();  // here it is very probable that the writer is in spot A, so give him time
+                if (null != (object = array[readerIx]))
+                {
+                    break wait_pos_filled;  // position is filled, go ahead
+                }
+                Thread.yield();  // the writer is in spot A, so give him time
             }
 
             // CAS the prospective reader position
