@@ -39,6 +39,9 @@
  verification data
  *********************************************/
 
+// Hint: For construction of the pre-fill scenario it is helpful to use the Interactive Simulator:
+// https://MultiArrayQueue.github.io/Simulator_MultiArrayQueue.html
+
 #define PREFILL_STEPS 4
 
 int prefill[4] = { 1, 0, 1, 1 }  // 1 = enqueue, 0 = dequeue
@@ -75,8 +78,8 @@ int staleReaderPositionIx = -1;
 // MAX_ARRAY_SIZE = FIRST_ARRAY_SIZE * (2 ^ CNT_ALLOWED_EXTENSIONS)
 #define MAX_ARRAY_SIZE 4
 
-// TOTAL_CAPACITY = SUM( SIZES OF ALL ARRAYS ) - 1
-#define TOTAL_CAPACITY (1+2+4-1)
+// MAXIMUM_CAPACITY = SUM( SIZES OF ALL ARRAYS ) - 1
+#define MAXIMUM_CAPACITY (1+2+4-1)
 
 typedef array {
     int element[MAX_ARRAY_SIZE];  // under-utilized except of the last array
@@ -264,7 +267,7 @@ start_anew : skip;
         //
         // a diversion that leads to an array of Objects always precedes (in the diversions array) any diversions
         // that lead from that array of Objects, so one bottom-up pass through the diversions array
-        // that starts at 1 + writerRix suffices (i.e. a short linear search)
+        // that starts at the diversion to 1 + writerRix suffices (i.e. a short linear search)
 
         for (tmpRix : (1 + writerRix) .. rixMax)
         {
@@ -345,7 +348,7 @@ go_forward_done :  // prospective move forward is now done
     {
         cntEnqueueFull ++;
         printf("PID %d found the Queue full on enqueue (1)\n", _pid);
-        assert(TOTAL_CAPACITY == (cntEnqueuedOnLPFull - cntDequeuedOnLPFull));  // must compare with counts from the linearization point!
+        assert(MAXIMUM_CAPACITY == (cntEnqueuedOnLPFull - cntDequeuedOnLPFull));  // must compare with counts from the linearization point!
     }
     :: (queueIsFullCheck) ->  // from hitting the reader (that is in the previous round) "from behind" elsewhere
     {
@@ -379,7 +382,7 @@ go_forward_done :  // prospective move forward is now done
             fi
             cntEnqueueFull ++;
             printf("PID %d found the Queue full on enqueue (2)\n", _pid);
-            assert(TOTAL_CAPACITY == (cntEnqueuedOnLPFull - cntDequeuedOnLPFull));  // must compare with counts from the linearization point!
+            assert(MAXIMUM_CAPACITY == (cntEnqueuedOnLPFull - cntDequeuedOnLPFull));  // must compare with counts from the linearization point!
         }
     }
     :: (extendQueue) ->
@@ -617,7 +620,7 @@ start_anew : skip;
         //
         // a diversion that leads to an array of Objects always precedes (in the diversions array) any diversions
         // that lead from that array of Objects, so one bottom-up pass through the diversions array
-        // that starts at 1 + readerRix suffices (i.e. a short linear search)
+        // that starts at the diversion to 1 + readerRix suffices (i.e. a short linear search)
 
         for (tmpRix : (1 + readerRix) .. rixMax)
         {

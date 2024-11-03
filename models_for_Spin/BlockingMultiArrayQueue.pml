@@ -32,6 +32,9 @@
  verification data
  *********************************************/
 
+// Hint: For construction of the pre-fill scenario it is helpful to use the Interactive Simulator:
+// https://MultiArrayQueue.github.io/Simulator_MultiArrayQueue.html
+
 #define PREFILL_STEPS 0
 
 int prefill[5] = { 1, 0, 1, 1, 1 }  // 1 = enqueue, 0 = dequeue
@@ -55,8 +58,8 @@ int cntDequeueEmpty = 0;
 // MAX_ARRAY_SIZE = FIRST_ARRAY_SIZE * (2 ^ CNT_ALLOWED_EXTENSIONS)
 #define MAX_ARRAY_SIZE 16
 
-// TOTAL_CAPACITY = SUM( SIZES OF ALL ARRAYS ) - 1
-#define TOTAL_CAPACITY (1+2+4+8+16-1)
+// MAXIMUM_CAPACITY = SUM( SIZES OF ALL ARRAYS ) - 1
+#define MAXIMUM_CAPACITY (1+2+4+8+16-1)
 
 typedef array {
     int element[MAX_ARRAY_SIZE];  // under-utilized except of the last array
@@ -166,7 +169,7 @@ proctype enqueue()
         //
         // a diversion that leads to an array of Objects always precedes (in the diversions array) any diversions
         // that lead from that array of Objects, so one bottom-up pass through the diversions array
-        // that starts at 1 + writerRix suffices (i.e. a short linear search)
+        // that starts at the diversion to 1 + writerRix suffices (i.e. a short linear search)
 
         for (tmpRix : (1 + writerRix) .. rixMax)
         {
@@ -238,7 +241,7 @@ go_forward_done :  // prospective move forward is now done
         {
             cntEnqueueFull ++;
             printf("PID %d found the Queue full on enqueue\n", _pid);
-            assert(TOTAL_CAPACITY == (cntEnqueued - cntDequeued));
+            assert(MAXIMUM_CAPACITY == (cntEnqueued - cntDequeued));
         }
         :: (extendQueue) ->
         {
@@ -353,7 +356,7 @@ proctype dequeue()
         //
         // a diversion that leads to an array of Objects always precedes (in the diversions array) any diversions
         // that lead from that array of Objects, so one bottom-up pass through the diversions array
-        // that starts at 1 + readerRix suffices (i.e. a short linear search)
+        // that starts at the diversion to 1 + readerRix suffices (i.e. a short linear search)
 
         for (tmpRix : (1 + readerRix) .. rixMax)
         {
