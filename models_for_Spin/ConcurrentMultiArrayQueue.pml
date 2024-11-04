@@ -108,6 +108,14 @@ int  readerPositionIx = 0;
 /*********************************************
  enqueue process
  *********************************************/
+inline QUEUE_IS_FULL(spot)
+{
+    cntEnqueueFull ++;
+    printf("PID %d found the Queue full on enqueue (%d)\n", _pid, spot);
+    assert(MAXIMUM_CAPACITY == (cntEnqueuedOnLPFull - cntDequeuedOnLPFull));  // must compare with counts from the linearization point!
+    queueIsFull = true;
+}
+
 proctype enqueue(bool useStale)
 {
     int  origWriterRound;  // writer original
@@ -246,7 +254,7 @@ start_anew : skip;
                         }
                         :: else ->
                         {
-                            queueIsFull = true;
+                            QUEUE_IS_FULL(1);
                         }
                         fi
                     }
@@ -295,8 +303,27 @@ start_anew : skip;
                     extendQueue = true;
                 }
                 :: else ->  // the Queue is now fully extended (but might not have been at the reading of origWriter)
+                // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
                 {
-                    queueIsFullCheck = true;
+                    if
+                    :: (recheckFromFullyExtended) ->  // we have already re-checked from here, i.e. from the fully extended state
+                    {
+                        QUEUE_IS_FULL(2);
+                    }
+                    :: else ->
+                    {
+                        if
+                        :: (CNT_ALLOWED_EXTENSIONS == origWriterRix) ->  // then origWriter must be from the fully extended state
+                        {
+                            QUEUE_IS_FULL(3);
+                        }
+                        :: else ->
+                        {
+                            queueIsFullCheck = true;  // the next check requires writerPosition, also it must be done after a TLWACCH
+                        }
+                        fi
+                    }
+                    fi
                 }
                 fi
             }
@@ -344,35 +371,21 @@ go_forward_done :  // prospective move forward is now done
 
     // preparations are done, start the actual work
     if
-    :: (queueIsFull) ->  // from hitting the reader (that is in the previous round) "from behind" on the return path of a diversion
-    {
-        cntEnqueueFull ++;
-        printf("PID %d found the Queue full on enqueue (1)\n", _pid);
-        assert(MAXIMUM_CAPACITY == (cntEnqueuedOnLPFull - cntDequeuedOnLPFull));  // must compare with counts from the linearization point!
-    }
-    :: (queueIsFullCheck) ->  // from hitting the reader (that is in the previous round) "from behind" elsewhere
+    :: (queueIsFull)  // just finish
+
+    :: (queueIsFullCheck) ->  // continue the checks with the next check that needs writerPosition
     {
         atomic
         {
-            // the Queue is now fully extended (but might not have been at the reading of origWriter)
-            // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
             if
-            :: (recheckFromFullyExtended) ->  // we have already re-checked from here, i.e. from the fully extended state
-            {
-                skip;  // Queue is full
-            }
-            :: (CNT_ALLOWED_EXTENSIONS == origWriterRix) ->  // then origWriter must be from the fully extended state
-            {
-                skip;  // Queue is full
-            }
-            :: (
+            :: (  // if writerPosition has not changed, then origWriter must be from the fully extended state (as we are now)
                 (origWriterRound == writerPositionRound)
              && (origWriterFlag == writerPositionFlag)
              && (origWriterRix == writerPositionRix)
              && (origWriterIx == writerPositionIx)
-               ) ->  // writerPosition has not changed, so origWriter must be from the fully extended state (as we are now)
+               ) ->
             {
-                skip;  // Queue is full
+                QUEUE_IS_FULL(4);
             }
             :: else ->  // origWriter is potentially stale from a past extension state of the Queue --> Start anew
             {
@@ -380,9 +393,6 @@ go_forward_done :  // prospective move forward is now done
                 goto start_anew;
             }
             fi
-            cntEnqueueFull ++;
-            printf("PID %d found the Queue full on enqueue (2)\n", _pid);
-            assert(MAXIMUM_CAPACITY == (cntEnqueuedOnLPFull - cntDequeuedOnLPFull));  // must compare with counts from the linearization point!
         }
     }
     :: (extendQueue) ->
