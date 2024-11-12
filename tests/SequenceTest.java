@@ -94,6 +94,8 @@ public class SequenceTest
 
         long stopMillis = System.currentTimeMillis() + (secondsToRun * 1000);
 
+        System.out.printf("------- testing %s -------%n", args[0]);
+
         for (; System.currentTimeMillis() < stopMillis ;)
         {
             // enqueueing random number of Objects
