@@ -510,7 +510,16 @@ public class ConcurrentMultiArrayQueue<T>
                         // they read: writerPosition (AtomicLong.get()) --> ringsMaxIndex (volatile read) --> rings and diversions
                         //
                         // No our writes can get re-ordered after our CAS and no their reads can get re-ordered
-                        // before their writerPosition.get()
+                        // before their writerPosition.get().
+                        //
+                        // Question: Must ringsMaxIndex be volatile? Answer yes. Proof by counterexample: When NOT volatile,
+                        // then the three writes of rings, diversions and ringsMaxIndex can get re-ordered so that ringsMaxIndex
+                        // is written first. Exactly thereafter the extending writer gets preempted. This means that the respective
+                        // position in the rings array stays null and the respective position in the diversions array stays zero
+                        // (i.e. rix == 0, ix == 0). Now a reader wakes up, moves forward and eventually reaches rings[0][0].
+                        // Here it (falsely) finds a diversion and follows it, i.e. goes a wrong way - a showstopper already.
+                        // But in addition to that, by testing if the first element of the array to which it has diverted
+                        // is already filled (remember the reference in rings is still null), it causes a NullPointerException ...
 
                         inProgressFlagCleared = true;
                         return true;
