@@ -45,13 +45,6 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 class SequenceTest2Thread implements Runnable
 {
-    long stopWriterMillis;
-
-    SequenceTest2Thread(long stopWriterMillis)
-    {
-        this.stopWriterMillis = stopWriterMillis;
-    }
-
     @Override
     public void run()
     {
@@ -61,8 +54,11 @@ class SequenceTest2Thread implements Runnable
 
             long[] object = null;
 
-            for (; System.currentTimeMillis() < stopWriterMillis ;)  // stop after stopWriterMillis
+            writer_loop:
+            for (;;)
             {
+                boolean tmpReplacesHaveStopped = SequenceTest2.replacesHaveStopped;  // volatile read before Enqueue
+
                 // if we do not have an Object from the last iteration (due to Queue full), try to get a recycled one
                 if (null == object)
                 {
@@ -90,6 +86,8 @@ class SequenceTest2Thread implements Runnable
                     fullQueueHits ++;
                     Thread.yield();
                 }
+
+                if (tmpReplacesHaveStopped) break writer_loop;
             }
 
             // put an eventual remaining Object back into the recycle Queue
@@ -101,6 +99,10 @@ class SequenceTest2Thread implements Runnable
         catch (Exception e)
         {
             e.printStackTrace();
+        }
+        finally
+        {
+            SequenceTest2.writerHasStopped = true;  // volatile write
         }
     }
 }
@@ -128,6 +130,9 @@ public class SequenceTest2
 
     static AtomicLong allocCounter = new AtomicLong(0L);  // atomic counter of allocated (by any Thread) Objects
     static AtomicLong inSequence = new AtomicLong(0L);
+
+    static volatile boolean replacesHaveStopped = false;
+    static volatile boolean writerHasStopped = false;
 
     // method to Enqueue into the current Queue (type as specified on the command line)
     static boolean enqueue(long[] object)
@@ -249,22 +254,24 @@ public class SequenceTest2
 
         State state = State.STATE_NORMAL;  // start in "normal state"
 
-        long stopReplaceMillis = System.currentTimeMillis() + (secondsToRun * 1000);
-        long stopWriterMillis = stopReplaceMillis + 500;
-        long stopReaderMillis = stopReplaceMillis + 1000;
+        long millis = System.currentTimeMillis();
 
-        long lastReplaceMillis = System.currentTimeMillis();
+        long stopReplaceMillis = millis + (secondsToRun * 1000);
+
+        long lastReplaceMillis = millis;
 
         System.out.printf("------- testing %s -------%n", args[0]);
 
         // start the writer Thread
-        Thread thread = new Thread(new SequenceTest2Thread(stopWriterMillis), "Thread_writer");
+        Thread thread = new Thread(new SequenceTest2Thread(), "Thread_writer");
         thread.start();
 
         // we now continue as the reader Thread
-
-        for (; System.currentTimeMillis() < stopReaderMillis ;)  // stop after stopReaderMillis
+        reader_loop:
+        for (;;)
         {
+            boolean tmpWriterHasStopped = writerHasStopped;  // volatile read before Dequeue
+
             long[] object;
 
             switch (state) {
@@ -286,12 +293,17 @@ public class SequenceTest2
                 }
                 else  // Queue was empty
                 {
+                    if (tmpWriterHasStopped) break reader_loop;
                     emptyQueueHits ++;
                     Thread.yield();
                 }
 
-                long millis = System.currentTimeMillis();
-                if (millis < stopReplaceMillis)  // replace only until stopReplaceMillis
+                millis = System.currentTimeMillis();
+                if (stopReplaceMillis < millis)  // replace only until stopReplaceMillis
+                {
+                    replacesHaveStopped = true;  // volatile write
+                }
+                if (! replacesHaveStopped)
                 {
                     if ((lastReplaceMillis + replaceMillis) < millis)  // if the time has come to replace the Queue
                     {
@@ -353,6 +365,7 @@ public class SequenceTest2
                 }
                 else  // Queue was empty
                 {
+                    if (tmpWriterHasStopped) break reader_loop;
                     newEmptyQueueHits ++;
                     state = State.STATE_REPLACE_WAIT_TRY_OLD;
                     Thread.yield();
@@ -392,6 +405,16 @@ public class SequenceTest2
             }
         }
 
+        if (replacesBegun != replacesFinished)
+        {
+            throw new AssertionError(String.format("replacesFinished %,d not equal to replacesBegun %,d", replacesFinished, replacesBegun), null);
+        }
+
+        if (inSequence.get() != outSequence)
+        {
+            throw new AssertionError(String.format("outSequence %,d not equal to inSequence %,d", outSequence, inSequence.get()), null);
+        }
+
         // Dequeue and count Objects in the recycle Queue
         long recycledObjects = 0L;
         for (; null != recycleDequeue() ;)
@@ -402,16 +425,6 @@ public class SequenceTest2
         if (allocCounter.get() != recycledObjects)
         {
             throw new AssertionError(String.format("recycledObjects %,d not equal to allocCounter %,d", recycledObjects, allocCounter.get()), null);
-        }
-
-        if (replacesBegun != replacesFinished)
-        {
-            throw new AssertionError(String.format("replacesFinished %,d not equal to replacesBegun %,d", replacesFinished, replacesBegun), null);
-        }
-
-        if (inSequence.get() != outSequence)
-        {
-            throw new AssertionError(String.format("outSequence %,d not equal to inSequence %,d", outSequence, inSequence.get()), null);
         }
 
         System.out.printf("allocCounter:      %,15d%n", allocCounter.get());
