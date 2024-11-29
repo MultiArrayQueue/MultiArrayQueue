@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>The Queue is backed by arrays of Objects with exponentially growing sizes, of which all are in use,
  * but only the first one (with {@code initialCapacity}) is allocated up-front.
  *
- * <p>This Queue uses atomic Compare-And-Swap (CAS) instructions for serializing of the enqueue and dequeue operations.
+ * <p>This Queue uses atomic Compare-And-Swap (CAS) instructions for serializing of the Enqueue and Dequeue operations.
  *
  * <p>The Queue does not strictly fulfill the requirement for "lock-free" that "in a bounded number of my steps
  * somebody makes progress" because there exist three spots in the program code (A and B tiny and C the extension
@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * would leave the Queue in a blocked state.
  *
  * <p>If you require a blocking variant of this Queue (based on {@code ReentrantLock}) that also allows for waiting
- * (if the Queue is empty on dequeue or full on enqueue), use {@code BlockingMultiArrayQueue} instead.
+ * (if the Queue is empty on Dequeue or full on Enqueue), use {@link BlockingMultiArrayQueue} instead.
  *
  * <p>The Queue can also be used as a pool for re-use of Objects in garbage-free environments, e.g. for recycling
  * of allocated memory blocks (of the same size), messages, connections to (the same) database and the like.
@@ -144,7 +144,7 @@ public class ConcurrentMultiArrayQueue<T>
      * which would altogether give a maximum (cumulative) capacity of 4.160.749.537 minus 1 Objects.
      *
      * <p>The initial memory footprint of this Queue will be (27 + 26 + 31 + 6) 64-bit-words
-     * + 2 AtomicLongs + a couple of Java object headers, also circa 1 kilobyte.
+     * + 2 AtomicLongs + a few Java object headers, also circa 1 kilobyte.
      */
     public ConcurrentMultiArrayQueue()
     {
@@ -163,9 +163,9 @@ public class ConcurrentMultiArrayQueue<T>
      *     to allocate arrays exactly to that limit)
      * <li>(if {@code cntAllowedExtensions == 0}) bounded Queue with all capacity pre-allocated and final
      * <li>(if {@code 0 < cntAllowedExtensions}) bounded Queue with only a partial capacity pre-allocated
-     *     and allowed to extend (grow) the given number of times. E.g. if initialCapacity == 100 and
-     *     cntAllowedExtensions == 3, then the Queue can grow up to four arrays with sizes 101, 202, 404 and 808,
-     *     giving a maximum capacity of 1515 minus 1 Objects.
+     *     that is allowed to extend (grow) the given number of times. E.g. if initialCapacity == 100 and
+     *     cntAllowedExtensions == 3, then the Queue can grow three times, also up to four arrays
+     *     with sizes 101, 202, 404 and 808, giving a maximum capacity of 1515 minus 1 Objects.
      * </ul>
      *
      * @param name name of the Queue
@@ -222,14 +222,14 @@ public class ConcurrentMultiArrayQueue<T>
     }
 
     /**
-     * Gets the name of the Queue
+     * Gets the name of the Queue.
      *
      * @return name of the Queue
      */
     public String getName() { return name; }
 
     /**
-     * Gets the maximum capacity (when the Queue is fully extended)
+     * Gets the maximum capacity (which the Queue would have if fully extended).
      *
      * @return maximum capacity of the Queue
      */
@@ -255,8 +255,10 @@ public class ConcurrentMultiArrayQueue<T>
      * <p>This method does not provide waiting if the Queue is full (because waiting is only possible with locks),
      * so if needed call this method repeatedly (with {@code Thread.yield()} recommended) to implement waiting.
      *
+     * <p>Read the section Linearizability for details on Concurrency.
+     *
      * @param object the Object to enqueue
-     * @return true if enqueued, false if not enqueued due to full Queue
+     * @return true if enqueued, false if not enqueued because the Queue is/was full
      * @throws IllegalArgumentException if the enqueued Object is null
      */
     public boolean enqueue(T object)
@@ -632,7 +634,9 @@ public class ConcurrentMultiArrayQueue<T>
      * <p>This method does not provide waiting if the Queue is empty (because waiting is only possible with locks),
      * so if needed call this method repeatedly (with {@code Thread.yield()} recommended) to implement waiting.
      *
-     * @return the dequeued Object, or null if the Queue is empty
+     * <p>Read the section Linearizability for details on Concurrency.
+     *
+     * @return the dequeued Object, or null if the Queue is/was empty
      */
     @SuppressWarnings("unchecked")
     public T dequeue()
@@ -810,7 +814,9 @@ public class ConcurrentMultiArrayQueue<T>
     /**
      * Concurrent isEmpty method
      *
-     * @return true if the Queue is empty, false otherwise
+     * <p>Read the section Linearizability for details on Concurrency.
+     *
+     * @return true if the Queue is/was empty, false if the Queue is/was not empty
      */
     public boolean isEmpty()
     {
@@ -861,7 +867,7 @@ public class ConcurrentMultiArrayQueue<T>
     After this linearization point the Object is actually written to the respective array (on the new writerPosition).
     This does not go atomically together with the CAS! So let's investigate it:
 
-    This ex-post write is irrelevant to concurrent Operations 1, 2, 3 and 5, but is relevant to Operation 4
+    This ex-post write is irrelevant to concurrent Operations 1, 2, 3, 5, 6 and 7, but is relevant to Operation 4
     that would need to Dequeue that Object:
 
     Operation 4 handles this by program code the allows it to reach its CAS on readerPosition (its own linearization point)
@@ -919,7 +925,7 @@ public class ConcurrentMultiArrayQueue<T>
     ** If the readerPosition is between these two extremes, then it is irrelevant if Operation 4 sees the incremented ringsMaxIndex
        or not, because it cannot encounter the entry side of the newly created diversion in that range.
 
-    * Impact on concurrent Operation 5: no impact (it does not evaluate ringsMaxIndex)
+    * Impact on concurrent Operations 5, 6 and 7: no impact (they do not evaluate ringsMaxIndex)
 
     Last remark on Operation 2: The distinction between "extend Queue" and "Queue is full" is controlled by ringsMaxIndex
     as well (whether it is below its maximum or at its maximum). As ringsMaxIndex only grows, chances are that Operation 2
@@ -966,25 +972,40 @@ public class ConcurrentMultiArrayQueue<T>
     After this linearization point the Object is actually read and cleared from the respective array (on the new readerPosition).
     This does not go atomically together with the CAS! So let's investigate it:
 
-    This ex-post write is irrelevant to concurrent Operations 2, 3, 4 and 5, but is relevant to Operation 1
+    This ex-post write is irrelevant to concurrent Operations 2, 3, 4, 5, 6 and 7, but is relevant to Operation 1
     (in the next round) that would need to re-use that array position for a new Enqueue:
 
     Operation 1 handles this by program code the allows it to reach its CAS on writerPosition (its own linearization point)
     only after it has seen that the Object was actually cleared from that position in the array.
 
     Operation 5. A failed Dequeue (due to empty Queue)
+    Operation 6. isEmpty method returns true
     --------------------------------------------------
 
     This outcome is reached if readerPosition stands on the writerPosition in the same round
     (the extension-in-progress flag not considered).
 
     Because readerPosition is read first, and both positions can only move forward,
-    and readerPosition can never get ahead of the writerPosition in the same round,
+    and readerPosition can never get ahead of the writerPosition (rounds considered),
     that equality means that the readerPosition must not have moved forward between the two reads.
 
     So the second read is the linearization point and at that instant the Queue must have indeed been empty
     (i.e. the count of successful Enqueue CASes must have been equal to the count of successful Dequeue CASes
     at that instant).
+
+    Operation 7. isEmpty method returns false
+    -----------------------------------------
+
+    This outcome is reached if the captured writerPosition is not equal to the captured readerPosition
+    (rounds considered, the extension-in-progress flag not considered).
+
+    Because readerPosition is read first, and both positions can only move forward,
+    and readerPosition can never get ahead of the writerPosition (rounds considered),
+    this means that between reading of the readerPosition and the writerPosition
+    there must have been at least one instant (the linearization point)
+    at which the writerPosition was ahead of the readerPosition
+    (i.e. the count of successful Enqueue CASes has been strictly greater
+    than the count of successful Dequeue CASes at that instant).
     */
 }
 

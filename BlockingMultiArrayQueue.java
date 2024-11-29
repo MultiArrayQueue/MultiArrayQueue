@@ -38,11 +38,11 @@ import java.util.concurrent.locks.Condition;
  * <p>The Queue is backed by arrays of Objects with exponentially growing sizes, of which all are in use,
  * but only the first one (with {@code initialCapacity}) is allocated up-front.
  *
- * <p>This Queue uses {@code ReentrantLock} for serializing of the enqueue and dequeue operations.
- * This also allows for waiting (if the Queue is empty on dequeue or full on enqueue).
+ * <p>This Queue uses {@code ReentrantLock} for serializing of the Enqueue and Dequeue operations.
+ * This also allows for waiting (if the Queue is empty on Dequeue or full on Enqueue).
  *
  * <p>If you require a concurrent variant of this Queue (based on atomic Compare-And-Swap (CAS) instructions),
- * use {@code ConcurrentMultiArrayQueue} instead.
+ * use {@link ConcurrentMultiArrayQueue} instead.
  *
  * <p>The Queue can also be used as a pool for re-use of Objects in garbage-free environments, e.g. for recycling
  * of allocated memory blocks (of the same size), messages, connections to (the same) database and the like.
@@ -131,13 +131,14 @@ public class BlockingMultiArrayQueue<T>
 
     /**
      * Creates a BlockingMultiArrayQueue with default values:
-     * named "Queue", with initial capacity 30 (size 31 of the first array of Objects), unbounded, no fair ordering policy.
+     * named "Queue", with initial capacity 30 (size 31 of the first array of Objects), unbounded,
+     * no fair ordering policy of the lock.
      *
      * <p>This initial capacity allows for up to 26 subsequent (exponentially growing) arrays of Objects
      * which would altogether give a maximum (cumulative) capacity of 4.160.749.537 minus 1 Objects.
      *
      * <p>The initial memory footprint of this Queue will be (27 + 26 + 31 + 9) 64-bit-words
-     * + a couple of Java object headers, also circa 1 kilobyte.
+     * + a few Java object headers, also circa 1 kilobyte.
      */
     public BlockingMultiArrayQueue()
     {
@@ -146,7 +147,8 @@ public class BlockingMultiArrayQueue<T>
 
     /**
      * Creates a BlockingMultiArrayQueue with the given name, given capacity of the first array of Objects,
-     * a limit of how many times the Queue is allowed to extend and the given decision about fair ordering policy.
+     * a limit of how many times the Queue is allowed to extend and the given decision about fair ordering policy
+     * of the lock.
      *
      * <p>The input parameters allow for the following three modes:
      * <ul>
@@ -156,15 +158,15 @@ public class BlockingMultiArrayQueue<T>
      *     to allocate arrays exactly to that limit)
      * <li>(if {@code cntAllowedExtensions == 0}) bounded Queue with all capacity pre-allocated and final
      * <li>(if {@code 0 < cntAllowedExtensions}) bounded Queue with only a partial capacity pre-allocated
-     *     and allowed to extend (grow) the given number of times. E.g. if initialCapacity == 100 and
-     *     cntAllowedExtensions == 3, then the Queue can grow up to four arrays with sizes 101, 202, 404 and 808,
-     *     giving a maximum capacity of 1515 minus 1 Objects.
+     *     that is allowed to extend (grow) the given number of times. E.g. if initialCapacity == 100 and
+     *     cntAllowedExtensions == 3, then the Queue can grow three times, also up to four arrays
+     *     with sizes 101, 202, 404 and 808, giving a maximum capacity of 1515 minus 1 Objects.
      * </ul>
      *
      * @param name name of the Queue
      * @param initialCapacity capacity of the first array of Objects (its size will be by one bigger)
      * @param cntAllowedExtensions how many times is the Queue allowed to extend (see above)
-     * @param fair true: ReentrantLock should use a fair ordering policy
+     * @param fair true: the ReentrantLock should use a fair ordering policy
      * @throws IllegalArgumentException if initialCapacity is negative
      * @throws IllegalArgumentException if initialCapacity is beyond maximum (less reserve)
      * @throws IllegalArgumentException if cntAllowedExtensions has invalid value
@@ -220,14 +222,14 @@ public class BlockingMultiArrayQueue<T>
     }
 
     /**
-     * Gets the name of the Queue
+     * Gets the name of the Queue.
      *
      * @return name of the Queue
      */
     public String getName() { return name; }
 
     /**
-     * Gets the maximum capacity (when the Queue is fully extended)
+     * Gets the maximum capacity (which the Queue would have if fully extended).
      *
      * @return maximum capacity of the Queue
      */
@@ -251,8 +253,10 @@ public class BlockingMultiArrayQueue<T>
      * Lock-based Enqueue of an Object
      *
      * @param object the Object to enqueue
-     * @param waitNanos 0: return false immediately if Queue is full, -1: wait forever, positive: maximum nanoseconds to wait
-     * @return true if enqueued, false if not enqueued due to full Queue
+     * @param waitNanos 0: return false immediately if the Queue is full,
+     *                 -1: wait without a time limit,
+     *                  positive: maximum nanoseconds to wait
+     * @return true if enqueued, false if not enqueued because the Queue is full
      * @throws IllegalArgumentException if the enqueued Object is null
      * @throws IllegalArgumentException if waitNanos has invalid value
      * @throws InterruptedException if the current thread is interrupted
@@ -401,7 +405,7 @@ public class BlockingMultiArrayQueue<T>
 
                 if (queueIsFull)
                 {
-                    if (-1L == waitNanos)  // wait forever
+                    if (-1L == waitNanos)  // wait without a time limit
                     {
                         notFull.await();
                     }
@@ -471,7 +475,9 @@ public class BlockingMultiArrayQueue<T>
     /**
      * Lock-based Dequeue of an Object
      *
-     * @param waitNanos 0: return null immediately if Queue is empty, -1: wait forever, positive: maximum nanoseconds to wait
+     * @param waitNanos 0: return null immediately if the Queue is empty,
+     *                 -1: wait without a time limit,
+     *                  positive: maximum nanoseconds to wait
      * @return the dequeued Object, or null if the Queue is empty
      * @throws IllegalArgumentException if waitNanos has invalid value
      * @throws InterruptedException if the current thread is interrupted
@@ -499,7 +505,7 @@ public class BlockingMultiArrayQueue<T>
 
                 if (writerPosition == readerPos)  // the reader stands on the writer: the Queue is empty
                 {
-                    if (-1L == waitNanos)  // wait forever
+                    if (-1L == waitNanos)  // wait without a time limit
                     {
                         notEmpty.await();
                     }

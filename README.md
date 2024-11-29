@@ -15,6 +15,12 @@ Performance figures are in the Paper as well.
 
 [Get acquainted with the new Queue here](https://MultiArrayQueue.github.io/Simulator_MultiArrayQueue.html)
 
+## Javadoc
+
+[BlockingMultiArrayQueue](https://MultiArrayQueue.github.io/javadoc/com/github/MultiArrayQueue/BlockingMultiArrayQueue.html)
+
+[ConcurrentMultiArrayQueue](https://MultiArrayQueue.github.io/javadoc/com/github/MultiArrayQueue/ConcurrentMultiArrayQueue.html)
+
 ## Development status
 
  * Currently (2024) this code is in its early stage and only for academic interest, not for production use.
