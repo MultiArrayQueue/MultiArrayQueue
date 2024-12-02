@@ -573,6 +573,18 @@ public class ConcurrentMultiArrayQueue<T>
                     {
                         break wait_pos_cleared;  // position is cleared, go ahead
                     }
+
+                    // In a SINGLE-WRITER REGIME, the Enqueue operation is wait-free, with two exceptions:
+                    //  1. the extension operation (the allocation of the new array is presumably not wait-free)
+                    //  2. the waiting on this spot
+                    //
+                    // (Wait-Free == In a bounded number of my steps I make progress)
+                    //
+                    // It would be possible to avoid the waiting on this spot by extending the Queue instead,
+                    // but to do so comprehensively would make things more complex elsewhere
+                    // (think of this waiting occurring on the return path of a diversion,
+                    // for avoiding of which it would be necessary to extend the forward-looking check).
+
                     Thread.yield();  // the reader is in spot B, so give him time
                 }
 
@@ -804,12 +816,36 @@ public class ConcurrentMultiArrayQueue<T>
         }
     }
 
-    // Design footnote 8: Performance-wise, as a Queue that uses CAS, the ConcurrentMultiArrayQueue
-    // presumably cannot keep up with competitor Queues that use Fetch-and-Increment.
+    // Design footnote 8: In a SINGLE-READER REGIME, the Dequeue operation is wait-free, with one exception:
+    //  1. when waiting for a writer that is in spot A
+    //
+    // If the single reader reads from only one Queue, then to keep waiting is the only option.
+    //
+    // However, if the single reader reads from multiple Queues, then it would be thinkable,
+    // at the cost of losing Linearizability, to return "Queue is empty" instead of this waiting,
+    // so that the reader can read from the other Queues in the meantime
+    // (and come back to the would-be-waited-for Object later):
+    //
+    //     Thread.yield(); --> return null;  // return "Queue is empty" instead of waiting for a writer that is in spot A
 
-    // Design footnote 9: On machines with a high number of CPU cores, it might make sense to comment-out the Thread.yield()s.
+    // Design footnote 9: In the SPECIAL CASE when the Queue is used as a "recycle Queue" and its readers
+    // are time-critical threads: Such threads want to Dequeue recycled Objects not necessarily in the right order
+    // but in bounded time, and if bounded time is not possible at certain moments (e.g. due to contention peaks),
+    // then they want to simply allocate new Objects instead.
+    // (Whether Object allocations occur in bounded time: That is another story.)
+    // In other words: Wait-Freedom is wanted at the cost of losing Linearizability.
+    // In such case it would be thinkable to make below changes in the Dequeue method:
+    //
+    //     if (3 < startAnewCnt) return null;  // return "Queue is empty" after having started anew 3 times
+    //
+    //     Thread.yield(); --> return null;  // return "Queue is empty" instead of waiting for a writer that is in spot A
 
-    // Design footnote 10: No countermeasures against False Sharing (like paddings) were attempted / implemented.
+    // Design footnote 10: On machines with a high number of CPU cores, the Thread.yield()s are possibly not needed.
+
+    // Design footnote 11: No countermeasures against False Sharing (like paddings) were attempted / implemented.
+
+    // Design footnote 12: Performance-wise, as a Queue that uses CAS, the ConcurrentMultiArrayQueue
+    // presumably cannot keep up with competitor Queues that use Fetch-and-Increment (e.g. LCRQ by Morrison, Afek).
 
     /**
      * Concurrent isEmpty method
