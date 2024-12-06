@@ -115,7 +115,8 @@ public class BlockingMultiArrayQueue<T>
     // to address the rings array and the position in the array of Objects using a single index.
     // This would result in better packing of rix and ix at the cost of extra computation (of MSB position).
     // The most appealing benefit would be the reduction of the size of the diversions array (from long[] to int[]).
-    // (Let's earmark this proposal as a candidate for future optimizations.)
+    // Conclusion: The benefits are not convincing in light of the drawbacks: limitation of array sizes to powers of two
+    // and/or a more complex processing. Therefore: not implemented.
 
     private final long[] diversions;
     private long writerPosition;
@@ -325,7 +326,7 @@ public class BlockingMultiArrayQueue<T>
                                     // context: the writer that preceded us (the one that successfully moved to the last position
                                     // in the array (i.e. to the position from which we start)) made a forward-looking check
                                     // to prevent the next writer from hitting the reader on the return path of a diversion
-                                    // and has not seen the reader there (otherwise it would have created a new diversion and gone there)
+                                    // and has not seen the reader there (otherwise it would have created a new diversion and gone to it)
                                     //
                                     // so now: as the reader cannot move back, it is impossible that we hit him, but better check ...
 

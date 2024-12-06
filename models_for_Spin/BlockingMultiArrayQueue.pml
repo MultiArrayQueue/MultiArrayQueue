@@ -143,7 +143,7 @@ proctype enqueue()
                         // context: the writer that preceded us (the one that successfully moved to the last position
                         // in the array (i.e. to the position from which we start)) made a forward-looking check
                         // to prevent the next writer from hitting the reader on the return path of a diversion
-                        // and has not seen the reader there (otherwise it would have created a new diversion and gone there)
+                        // and has not seen the reader there (otherwise it would have created a new diversion and gone to it)
                         //
                         // so now: as the reader cannot move back, it is impossible that we hit him, but better check ...
 

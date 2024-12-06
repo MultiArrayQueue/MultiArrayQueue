@@ -246,7 +246,7 @@ start_anew : skip;
                             // context: the writer that preceded us (the one that successfully moved to the last position
                             // in the array (i.e. to the position from which we start)) made a forward-looking check
                             // to prevent the next writer from hitting the reader on the return path of a diversion
-                            // and has not seen the reader there (otherwise it would have created a new diversion and gone there)
+                            // and has not seen the reader there (otherwise it would have created a new diversion and gone to it)
                             //
                             // so now: as the reader cannot move back, it is impossible that we hit him, but better check ...
 
@@ -438,7 +438,7 @@ go_forward_done :  // prospective move forward is now done
             }
             :: else ->
             {
-                goto start_anew;  // CAS failed (i.e. lost the race against other writers) --> Start anew
+                goto start_anew;  // CAS failed (i.e. we have lost the race against other writers) --> Start anew
             }
             fi
         }
@@ -472,8 +472,8 @@ go_forward_done :  // prospective move forward is now done
         // (this has most probably already happened or shall occur "soon" (if the reader is in spot B))
         //
         // if the writerPosition has moved forward during the waiting, we have to stop it,
-        // because then another writer has in the meantime obtained (and written again) the position,
-        // so we would wait forever
+        // because this means that another writer has in the meantime obtained the position,
+        // and possibly also has written to it, so we could wait forever
         //
         // (if writerPosition has moved, the CAS would fail anyway)
 
@@ -519,7 +519,7 @@ writer_cas :
             }
             :: else ->
             {
-                goto start_anew;  // CAS failed (i.e. lost the race against other writers) --> Start anew
+                goto start_anew;  // CAS failed (i.e. we have lost the race against other writers) --> Start anew
             }
             fi
         }
@@ -654,8 +654,8 @@ go_forward_done :  // prospective move forward is now done
     // (this has most probably already happened or shall occur "soon" (if the writer is in spot A))
     //
     // if the readerPosition has moved forward during the waiting, we have to stop it,
-    // because then another reader has in the meantime obtained (and cleared again) the position,
-    // so we would wait forever
+    // because this means that another reader has in the meantime obtained the position,
+    // and possibly also has cleared it, so we could wait forever
     //
     // (if readerPosition has moved, the CAS would fail anyway)
 
@@ -699,7 +699,7 @@ reader_cas :
         }
         :: else ->
         {
-            goto start_anew;  // CAS failed (i.e. lost the race against other readers) --> Start anew
+            goto start_anew;  // CAS failed (i.e. we have lost the race against other readers) --> Start anew
         }
         fi
     }

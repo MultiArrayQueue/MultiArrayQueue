@@ -126,7 +126,8 @@ public class ConcurrentMultiArrayQueue<T>
     // to address the rings array and the position in the array of Objects using a single index.
     // This would result in better packing of rix and ix at the cost of extra computation (of MSB position).
     // The most appealing benefit would be the reduction of the size of the diversions array (from long[] to int[]).
-    // (Let's earmark this proposal as a candidate for future optimizations.)
+    // Conclusion: The benefits are not convincing in light of the drawbacks: limitation of array sizes to powers of two
+    // and/or a more complex processing. Therefore: not implemented.
 
     private final long[] diversions;
     private final AtomicLong writerPosition;
@@ -345,7 +346,7 @@ public class ConcurrentMultiArrayQueue<T>
                                     // context: the writer that preceded us (the one that successfully moved to the last position
                                     // in the array (i.e. to the position from which we start)) made a forward-looking check
                                     // to prevent the next writer from hitting the reader on the return path of a diversion
-                                    // and has not seen the reader there (otherwise it would have created a new diversion and gone there)
+                                    // and has not seen the reader there (otherwise it would have created a new diversion and gone to it)
                                     //
                                     // so now: as the reader cannot move back, it is impossible that we hit him, but better check ...
 
@@ -511,15 +512,15 @@ public class ConcurrentMultiArrayQueue<T>
                         //
                         // they read: writerPosition (AtomicLong.get()) --> ringsMaxIndex (volatile read) --> rings and diversions
                         //
-                        // No our writes can get re-ordered after our CAS and no their reads can get re-ordered
-                        // before their writerPosition.get().
+                        // No our writes can get re-ordered after our volatile write and our CAS
+                        // and no their reads can get re-ordered before their writerPosition.get() and their volatile read.
                         //
                         // Question: Must ringsMaxIndex be volatile? Answer yes. Proof by counterexample: When NOT volatile,
                         // then the three writes of rings, diversions and ringsMaxIndex can get re-ordered so that ringsMaxIndex
                         // is written first. Exactly thereafter the extending writer gets preempted. This means that the respective
                         // position in the rings array stays null and the respective position in the diversions array stays zero
                         // (i.e. rix == 0, ix == 0). Now a reader wakes up, moves forward and eventually reaches rings[0][0].
-                        // Here it (falsely) finds a diversion and follows it, i.e. goes a wrong way - a showstopper already.
+                        // Here it (falsely) finds a diversion and follows it, i.e. goes a wrong way - a fatal problem already.
                         // But in addition to that, by testing if the first element of the array to which it has diverted
                         // is already filled (remember the reference in rings is still null), it causes a NullPointerException ...
 
@@ -541,7 +542,7 @@ public class ConcurrentMultiArrayQueue<T>
                 }
                 else
                 {
-                    continue start_anew;  // CAS failed (i.e. lost the race against other writers) --> Start anew
+                    continue start_anew;  // CAS failed (i.e. we have lost the race against other writers) --> Start anew
                 }
             }
             else  // no extendQueue
@@ -552,8 +553,8 @@ public class ConcurrentMultiArrayQueue<T>
                 // (writes to and reads of references are always atomic (JLS 17.7))
                 //
                 // if the writerPosition has moved forward during the waiting, we have to stop it,
-                // because then another writer has in the meantime obtained (and written again) the position,
-                // so we would wait forever
+                // because this means that another writer has in the meantime obtained the position,
+                // and possibly also has written to it, so we could wait forever
                 //
                 // (if writerPosition has moved, the CAS would fail anyway)
                 //
@@ -584,6 +585,9 @@ public class ConcurrentMultiArrayQueue<T>
                     // but to do so comprehensively would make things more complex elsewhere
                     // (think of this waiting occurring on the return path of a diversion,
                     // for avoiding of which it would be necessary to extend the forward-looking check).
+                    //
+                    // However, as wait-freedom in the single-writer regime is an important topic,
+                    // let's earmark this as a candidate for further development.
 
                     Thread.yield();  // the reader is in spot B, so give him time
                 }
@@ -598,7 +602,7 @@ public class ConcurrentMultiArrayQueue<T>
                     // (but: readers wait till they see the position filled)
 
                     // Design footnote 3: The missing lock-freedom on this spot has perhaps the biggest
-                    // practical relevance: Imagine the queue almost empty, i.e. the readers are
+                    // practical relevance: Imagine the Queue almost empty, i.e. the readers are
                     // close behind the writers. If a writer successfully moves writerPosition forward
                     // and gets preempted before actually writing the Object, then other writers
                     // can continue beyond that place, but readers will be blocked at that place
@@ -616,10 +620,10 @@ public class ConcurrentMultiArrayQueue<T>
 
                     // Design footnote 5: To implement lock-freedom on this spot by the principles of
                     // the a.m. Michael & Scott Queue via the operations available in Java,
-                    // one option would be to store integers (instead of Objects) in the queue,
+                    // one option would be to store integers (instead of Objects) in the Queue,
                     // so that the integers AND the round numbers could be together accommodated
                     // in the 64-bit AtomicLongs. This would however require the translation between
-                    // the integers and the Objects to be done "somewhere" outside of the queue ...
+                    // the integers and the Objects to be done "somewhere" outside of the Queue ...
 
                     // Design footnote 6: The other means of approaching lock-freedom on this spot
                     // are in the Paper: Double-Location CAS (rather theoretical) and pinning
@@ -630,7 +634,7 @@ public class ConcurrentMultiArrayQueue<T>
                 }
                 else
                 {
-                    continue start_anew;  // CAS failed (i.e. lost the race against other writers) --> Start anew
+                    continue start_anew;  // CAS failed (i.e. we have lost the race against other writers) --> Start anew
                 }
             }
         }
@@ -675,9 +679,12 @@ public class ConcurrentMultiArrayQueue<T>
 
             // Design footnote 7: The reader does not evaluate the extension-in-progress flag.
             // This means that if the reader stands on the writer, the Queue is seen as empty
-            // even when an extension operation is in progress (but has not yet finished).
+            // even if an extension operation is already in progress (but has not yet finished).
             // This was a design decision. An alternative ("slower/stickier") solution is imaginable
             // where the reader would wait for the writer to finish the extension operation in such case.
+            //
+            // BTW the current solution is also consistent with the fact that it is the concluding CAS
+            // that is the linearization point of the extension operation.
 
             if ((writerRound == readerRound) && (writerPos == readerPos))
             {
@@ -689,7 +696,7 @@ public class ConcurrentMultiArrayQueue<T>
             //
             // Let's think through that and gain some extra insights:
             //
-            //    As a diversion always leads to beginning of an array, an eventual "cascade" can only have this form:
+            //    As a diversion always leads to the beginning of an array, an eventual "cascade" can only have this form:
             //
             //    rings [x][y] --> rings [m][0] --> rings [n][0] --> rings [p][0] --> ...
             //
@@ -770,8 +777,8 @@ public class ConcurrentMultiArrayQueue<T>
             // (writes to and reads of references are always atomic (JLS 17.7))
             //
             // if the readerPosition has moved forward during the waiting, we have to stop it,
-            // because then another reader has in the meantime obtained (and cleared again) the position,
-            // so we would wait forever
+            // because this means that another reader has in the meantime obtained the position,
+            // and possibly also has cleared it, so we could wait forever
             //
             // (if readerPosition has moved, the CAS would fail anyway)
             //
@@ -811,7 +818,7 @@ public class ConcurrentMultiArrayQueue<T>
             }
             else
             {
-                continue start_anew;  // CAS failed (i.e. lost the race against other readers) --> Start anew
+                continue start_anew;  // CAS failed (i.e. we have lost the race against other readers) --> Start anew
             }
         }
     }
@@ -829,9 +836,9 @@ public class ConcurrentMultiArrayQueue<T>
     //     Thread.yield(); --> return null;  // return "Queue is empty" instead of waiting for a writer that is in spot A
 
     // Design footnote 9: In the SPECIAL CASE when the Queue is used as a "recycle Queue" and its readers
-    // are time-critical threads: Such threads want to Dequeue recycled Objects not necessarily in the right order
-    // but in bounded time, and if bounded time is not possible at certain moments (e.g. due to contention peaks),
-    // then they want to simply allocate new Objects instead.
+    // are time-critical threads: Such threads need to Dequeue recycled Objects in bounded time,
+    // and if bounded time is not possible at certain moments (e.g. due to contention peaks),
+    // then it is acceptable to simply allocate new Objects instead.
     // (Whether Object allocations occur in bounded time: That is another story.)
     // In other words: Wait-Freedom is wanted at the cost of losing Linearizability.
     // In such case it would be thinkable to make below changes in the Dequeue method:
@@ -919,8 +926,8 @@ public class ConcurrentMultiArrayQueue<T>
     Operation 2. The Enqueue with Queue extension
     ---------------------------------------------
 
-    The linearization point is the successful CAS on writerPosition that exchanges the
-    original writer position against the new writer position that is the first element of the new array.
+    The linearization point is the successful CAS on writerPosition that exchanges the original writer position
+    against the new writer position that is the first element of the new array.
 
     Note that this CAS only concludes the previous (non-atomic) series of steps of the extension of the Queue
     which begins with the opening CAS (that implants the extension-in-progress flag into the writerPosition,
@@ -955,8 +962,8 @@ public class ConcurrentMultiArrayQueue<T>
     ** The opposite extreme (possible, especially in the initial phases) is that the readerPosition stands on the writerPosition
        from which the Operation 2 starts. Then as long as Operation 2 has not moved writerPosition forward, Operation 4 cannot start
        and the outcome is "Queue is empty". Operation 2 moves writerPosition forward as the last step of the extension of the Queue.
-       Only then Operation 4 starts its processing, and because it reads ringsMaxIndex after having read writerPosition, it will see
-       the incremented ringsMaxIndex and will not miss the newly created diversion.
+       Only then Operation 4 can start its processing, and because it reads ringsMaxIndex after having read writerPosition,
+       it will see the incremented ringsMaxIndex and will not miss the newly created diversion.
 
     ** If the readerPosition is between these two extremes, then it is irrelevant if Operation 4 sees the incremented ringsMaxIndex
        or not, because it cannot encounter the entry side of the newly created diversion in that range.
@@ -995,13 +1002,13 @@ public class ConcurrentMultiArrayQueue<T>
     then the "Queue fully extended" condition is implicitly given, due to the forward-looking feature of the writer (see Paper).
     The program code however still (can be removed in the future) evaluates (simplistically) the condition in order to throw
     an AssertionError when violated (more precisely (keeping in mind a possible concurrent scenario): when violated without doubt
-    from the data at the respective spot).
+    at the respective spot, i.e. if the ringsMaxIndex still indicates a possible extension there).
 
     Operation 4. The regular Dequeue
     --------------------------------
 
-    The linearization point is the successful CAS on readerPosition that exchanges the
-    original reader position against the newly prepared (prospective) reader position.
+    The linearization point is the successful CAS on readerPosition that exchanges the original reader position
+    against the newly prepared (prospective) reader position.
 
     Nothing happens before this linearization point (except of reads and work on local variables).
 
@@ -1026,8 +1033,7 @@ public class ConcurrentMultiArrayQueue<T>
     that equality means that the readerPosition must not have moved forward between the two reads.
 
     So the second read is the linearization point and at that instant the Queue must have indeed been empty
-    (i.e. the count of successful Enqueue CASes must have been equal to the count of successful Dequeue CASes
-    at that instant).
+    (i.e. the count of successful Enqueue CASes must have been equal to the count of successful Dequeue CASes at that instant).
 
     Operation 7. isEmpty method returns false
     -----------------------------------------
