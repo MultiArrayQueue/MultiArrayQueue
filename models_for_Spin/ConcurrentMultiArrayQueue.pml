@@ -42,12 +42,12 @@
 // Hint: For construction of the pre-fill scenario it is helpful to use the Interactive Simulator:
 // https://MultiArrayQueue.github.io/Simulator_MultiArrayQueue.html
 
-#define PREFILL_STEPS 4
+#define PREFILL_STEPS 6
 
-int prefill[4] = { 1, 0, 1, 1 }  // 1 = enqueue, 0 = dequeue
+int prefill[6] = { 1, 0, 1, 0, 1, 1 }  // 1 = enqueue, 0 = dequeue
 
-#define WRITERS 3
-#define READERS 1
+#define WRITERS 2
+#define READERS 2
 
 int cntEnqueued = 0;
 int cntEnqueueFull = 0;
@@ -73,13 +73,13 @@ int staleReaderPositionIx = -1;
  *********************************************/
 
 #define FIRST_ARRAY_SIZE 1
-#define CNT_ALLOWED_EXTENSIONS 2
+#define CNT_ALLOWED_EXTENSIONS 3
 
 // MAX_ARRAY_SIZE = FIRST_ARRAY_SIZE * (2 ^ CNT_ALLOWED_EXTENSIONS)
-#define MAX_ARRAY_SIZE 4
+#define MAX_ARRAY_SIZE 8
 
 // MAXIMUM_CAPACITY = SUM( SIZES OF ALL ARRAYS ) - 1
-#define MAXIMUM_CAPACITY (1+2+4-1)
+#define MAXIMUM_CAPACITY (1+2+4+8-1)
 
 typedef array {
     int element[MAX_ARRAY_SIZE];  // under-utilized except of the last array
@@ -105,9 +105,17 @@ int  readerPositionRound = 0;
 int  readerPositionRix = 0;
 int  readerPositionIx = 0;
 
+bool preferExtensionOverWaitForB = true;
+
 /*********************************************
  enqueue process
  *********************************************/
+inline EXTEND_QUEUE(spot)
+{
+    printf("PID %d indicates Queue extension (%d)\n", _pid, spot);
+    extendQueue = true;
+}
+
 inline QUEUE_IS_FULL(spot)
 {
     cntEnqueueFull ++;
@@ -233,12 +241,13 @@ start_anew : skip;
                 tmpRix = writerRix;
                 writerRix = diversions[tmpRix - 1].rix;  // follow diversion[N-1] back
                 writerIx  = diversions[tmpRix - 1].ix;
+
+                // if the prospective move has hit the reader (that is in the previous round) "from behind"
                 if
-                :: ((readerRound + 1) == writerRound) ->
+                :: ((readerRix == writerRix) && (readerIx == writerIx)) ->
                 {
-                    // if the prospective move has hit the reader (that is in the previous round) "from behind"
                     if
-                    :: ((readerRix == writerRix) && (readerIx == writerIx)) ->
+                    :: ((readerRound + 1) == writerRound) ->
                     {
                         if
                         :: (isQueueExtensionPossible) ->
@@ -290,17 +299,18 @@ start_anew : skip;
             fi
         }
 
+        // if the prospective move has hit the reader (that is in the previous round) "from behind"
         if
-        :: ((readerRound + 1) == writerRound) ->
+        :: ((readerRix == writerRix) && (readerIx == writerIx)) ->
         {
-            // if the prospective move has hit the reader (that is in the previous round) "from behind"
             if
-            :: ((readerRix == writerRix) && (readerIx == writerIx)) ->
+            :: ((readerRound + 1) == writerRound) ->
             {
                 if
                 :: (isQueueExtensionPossible) ->
                 {
-                    extendQueue = true;
+                    EXTEND_QUEUE(1);
+                    goto go_forward_done;
                 }
                 :: else ->  // the Queue is now fully extended (but might not have been at the reading of origWriter)
                 // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
@@ -309,6 +319,7 @@ start_anew : skip;
                     :: (recheckFromFullyExtended) ->  // we have already re-checked from here, i.e. from the fully extended state
                     {
                         QUEUE_IS_FULL(2);
+                        goto go_forward_done;
                     }
                     :: else ->
                     {
@@ -316,10 +327,12 @@ start_anew : skip;
                         :: (CNT_ALLOWED_EXTENSIONS == origWriterRix) ->  // then origWriter must be from the fully extended state
                         {
                             QUEUE_IS_FULL(3);
+                            goto go_forward_done;
                         }
                         :: else ->
                         {
                             queueIsFullCheck = true;  // the next check requires writerPosition, also it must be done after a TLWACCH
+                            goto go_forward_done;
                         }
                         fi
                     }
@@ -327,42 +340,59 @@ start_anew : skip;
                 }
                 fi
             }
-
-            // the forward-looking check to prevent the next writer from hitting the reader "from behind"
-            // on the return path of a diversion (see Paper for explanation)
-            :: else ->
-            {
-                int testNextWriterRix = writerRix;
-                int testNextWriterIx  = writerIx;
-
-                do
-                :: ((0 != testNextWriterRix) && ((FIRST_ARRAY_SIZE << testNextWriterRix) == (1 + testNextWriterIx))) ->
-                {
-                    tmpRix = testNextWriterRix;
-                    testNextWriterRix = diversions[tmpRix - 1].rix;  // follow the diversion back
-                    testNextWriterIx  = diversions[tmpRix - 1].ix;
-                    if
-                    :: ((readerRix == testNextWriterRix) && (readerIx == testNextWriterIx)) ->  // if we would hit the reader
-                    {
-                        if
-                        :: (isQueueExtensionPossible) ->
-                        {
-                            extendQueue = true;
-                        }
-                        :: else;
-                        fi
-                        break;
-                    }
-                    :: else;
-                    fi
-                }
-                :: else -> break;
-                od
-            }
+            :: else;
             fi
         }
         :: else;
         fi
+
+        // the forward-looking check to prevent the next writer from hitting the reader "from behind"
+        // on the return path of a diversion (see Paper for explanation)
+        int testNextWriterRix = writerRix;
+        int testNextWriterIx  = writerIx;
+
+        do
+        :: ((0 != testNextWriterRix) && ((FIRST_ARRAY_SIZE << testNextWriterRix) == (1 + testNextWriterIx))) ->
+        {
+            tmpRix = testNextWriterRix;
+            testNextWriterRix = diversions[tmpRix - 1].rix;  // follow the diversion back
+            testNextWriterIx  = diversions[tmpRix - 1].ix;
+            if
+            :: ((readerRix == testNextWriterRix) && (readerIx == testNextWriterIx)) ->  // if we would hit the reader
+            {
+                if
+                :: ((readerRound + 1) == writerRound) ->
+                {
+                    if
+                    :: (isQueueExtensionPossible) ->
+                    {
+                        EXTEND_QUEUE(2);
+                    }
+                    :: else;
+                    fi
+                    break;
+                }
+                :: else;
+                fi
+            }
+            :: else;
+            fi
+
+            // preferExtensionOverWaitForB:
+            // also prevent the next writer from running into waiting for a reader that is in spot B
+            // on the return path of a diversion
+            if
+            :: (preferExtensionOverWaitForB
+             && isQueueExtensionPossible
+             && (0 != rings[testNextWriterRix].element[testNextWriterIx])) ->
+            {
+                EXTEND_QUEUE(3);
+            }
+            :: else;
+            fi
+        }
+        :: else -> break;
+        od
 
 go_forward_done :  // prospective move forward is now done
     }
@@ -370,6 +400,80 @@ go_forward_done :  // prospective move forward is now done
     /*TLWACCH*/
 
     // preparations are done, start the actual work
+
+    atomic
+    {
+        if
+        :: (queueIsFull)  // just go ahead
+        :: (queueIsFullCheck)  // just go ahead
+        :: (extendQueue)  // just go ahead
+
+        :: else ->
+        {
+            // wait for the prospective writer position to become cleared by the respective reader
+            // (that is in the previous round)
+            //
+            // three scenarios are possible:
+            //
+            //   1. this has most probably already happened
+            //   2. this shall occur "soon" (if the reader is in spot B and is NOT preempted there)
+            //   3. this may occur "very late" (if the reader is in spot B and IS preempted there)
+            //
+            // if the writerPosition has moved forward during the waiting, we have to stop it,
+            // because this means that another writer has in the meantime obtained the position,
+            // and possibly also has written to it, so we could wait forever
+            //
+            // (if writerPosition has moved, the CAS would fail anyway)
+
+            if
+            :: ((origWriterRound != writerPositionRound)
+             || (origWriterFlag != writerPositionFlag)
+             || (origWriterRix != writerPositionRix)
+             || (origWriterIx != writerPositionIx)) ->  // writerPosition has moved --> Stop waiting, Start anew
+            {
+                goto start_anew;
+            }
+
+            :: ((origWriterRound == writerPositionRound)
+             && (origWriterFlag == writerPositionFlag)
+             && (origWriterRix == writerPositionRix)
+             && (origWriterIx == writerPositionIx)
+             && (0 == rings[writerRix].element[writerIx]))  // position is cleared, go ahead
+
+            :: ((origWriterRound == writerPositionRound)
+             && (origWriterFlag == writerPositionFlag)
+             && (origWriterRix == writerPositionRix)
+             && (origWriterIx == writerPositionIx)
+             && (0 != rings[writerRix].element[writerIx])
+             && preferExtensionOverWaitForB
+             && isQueueExtensionPossible) ->
+            {
+                // preferExtensionOverWaitForB:
+                // (the other part of this functionality is in the forward-looking check)
+                //
+                // What we are doing here is to avoid the waiting by extending the Queue instead.
+                // This is of course possible only as long as the Queue is not yet fully extended.
+                //
+                // This solves the following problem for the writer threads:
+                // The waiting for the reader, if preempted exactly in spot B (scenario 3 above)
+                // can last up into the milliseconds range (the preemption gap) and this is where
+                // the reader threads can inflict ugly latency spikes on the writer threads
+                // (that are possibly more time-critical / have higher priority).
+                //
+                // The extension operations are presumably quicker. Further, they cause
+                // the Queue to grow to a size where the writerPosition and the readerPosition
+                // will be so far apart that the problem fades away.
+                // (This will of course cost memory!)
+
+                EXTEND_QUEUE(4);  // extend the Queue instead of waiting for the reader that is in spot B
+            }
+            fi
+        }
+        fi
+    }
+
+    /*TLWACCH*/
+
     if
     :: (queueIsFull)  // just finish
 
@@ -419,6 +523,12 @@ go_forward_done :  // prospective move forward is now done
                 assert(0 == rings[rixMaxNew].element[0]);
 
                 // impossible for writerPos to be already in the diversions array, but better check ...
+                //
+                // for preferExtensionOverWaitForB:
+                // this check would also detect a scenario where we would erroneously extend the Queue
+                // on the return path of a diversion to avoid waiting for a reader that is in spot B there
+                // (also the scenario which the forward-looking check should have prevented)
+
                 for (tmpRix : 1 .. rixMax)
                 {
                     if
@@ -468,36 +578,6 @@ go_forward_done :  // prospective move forward is now done
     }
     :: else ->  // no extendQueue
     {
-        // wait for the prospective writer position to become cleared by the respective reader
-        // (this has most probably already happened or shall occur "soon" (if the reader is in spot B))
-        //
-        // if the writerPosition has moved forward during the waiting, we have to stop it,
-        // because this means that another writer has in the meantime obtained the position,
-        // and possibly also has written to it, so we could wait forever
-        //
-        // (if writerPosition has moved, the CAS would fail anyway)
-
-        atomic
-        {
-            if
-            :: ((origWriterRound != writerPositionRound)
-             || (origWriterFlag != writerPositionFlag)
-             || (origWriterRix != writerPositionRix)
-             || (origWriterIx != writerPositionIx)) ->
-            {
-                goto start_anew;
-            }
-            :: (0 == rings[writerRix].element[writerIx]) ->
-            {
-                goto writer_cas;
-            }
-            fi
-        }
-
-        /*TLWACCH*/
-
-writer_cas :
-
         // CAS the prospective writer position
         atomic
         {
@@ -582,7 +662,7 @@ start_anew : skip;
         // linearization point for Queue empty
         // if the reader stands on the writer: the Queue is empty
         if
-        :: ((writerRound == readerRound) && (writerRix == readerRix) && (writerIx == readerIx)) ->
+        :: ((writerRix == readerRix) && (writerIx == readerIx) && (writerRound == readerRound)) ->
         {
             cntDequeueEmpty ++;
             printf("PID %d found the Queue empty on dequeue\n", _pid);
@@ -651,7 +731,12 @@ go_forward_done :  // prospective move forward is now done
     /*TLWACCH*/
 
     // wait for the prospective reader position to become filled by the respective writer
-    // (this has most probably already happened or shall occur "soon" (if the writer is in spot A))
+    //
+    // three scenarios are possible:
+    //
+    //   1. this has most probably already happened
+    //   2. this shall occur "soon" (if the writer is in spot A and is NOT preempted there)
+    //   3. this may occur "very late" (if the writer is in spot A and IS preempted there)
     //
     // if the readerPosition has moved forward during the waiting, we have to stop it,
     // because this means that another reader has in the meantime obtained the position,
@@ -664,21 +749,21 @@ go_forward_done :  // prospective move forward is now done
         if
         :: ((origReaderRound != readerPositionRound)
          || (origReaderRix != readerPositionRix)
-         || (origReaderIx != readerPositionIx)) ->
+         || (origReaderIx != readerPositionIx)) ->  // readerPosition has moved --> Stop waiting, Start anew
         {
             goto start_anew;
         }
-        :: (0 != rings[readerRix].element[readerIx]) ->
+        :: ((origReaderRound == readerPositionRound)
+         && (origReaderRix == readerPositionRix)
+         && (origReaderIx == readerPositionIx)
+         && (0 != rings[readerRix].element[readerIx])) ->  // position is filled, go ahead
         {
             valueDequeued = rings[readerRix].element[readerIx];
-            goto reader_cas;
         }
         fi
     }
 
     /*TLWACCH*/
-
-reader_cas :
 
     // CAS the prospective reader position
     atomic

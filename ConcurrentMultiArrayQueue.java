@@ -133,6 +133,8 @@ public class ConcurrentMultiArrayQueue<T>
     private final AtomicLong writerPosition;
     private final AtomicLong readerPosition;
 
+    private final boolean preferExtensionOverWaitForB;
+
     // ____ ____ _  _ ____ ___ ____ _  _ ____ ___ ____ ____ ____
     // |    |  | |\ | [__   |  |__/ |  | |     |  |  | |__/ [__
     // |___ |__| | \| ___]  |  |  \ |__| |___  |  |__| |  \ ___]
@@ -180,7 +182,23 @@ public class ConcurrentMultiArrayQueue<T>
     public ConcurrentMultiArrayQueue(String name, int initialCapacity, int cntAllowedExtensions)
     throws IllegalArgumentException
     {
+        this(name, initialCapacity, cntAllowedExtensions, false);
+    }
+
+    /*
+     * A Constructor with all (including special) parameters
+     */
+    public ConcurrentMultiArrayQueue
+    (
+         String name
+        ,int initialCapacity
+        ,int cntAllowedExtensions
+        ,boolean preferExtensionOverWaitForB
+    )
+    throws IllegalArgumentException
+    {
         this.name = name;
+        this.preferExtensionOverWaitForB = preferExtensionOverWaitForB;
         if (initialCapacity < 0) {
             throw new IllegalArgumentException(String.format(
                 "%s %s: initialCapacity %,d is negative", qType, name, initialCapacity));
@@ -307,7 +325,10 @@ public class ConcurrentMultiArrayQueue<T>
             long readerRound = (origReader & 0xFFFF_FFE0_0000_0000L);
             long readerPos   = (origReader & 0x0000_000F_FFFF_FFFFL);
 
-            int rixMax = -1, writerRix, writerIx;
+            int rixMax = ringsMaxIndex;  // volatile read
+            boolean isQueueExtensionPossible = ((1 + rixMax) < rings.length);  // if there is room yet for the extension
+
+            int writerRix, writerIx;
             boolean extendQueue = false;
 
             go_forward:
@@ -334,13 +355,11 @@ public class ConcurrentMultiArrayQueue<T>
                         writerRix = (int) (writerPos & 0x0000_0000_0000_001FL);
                         writerIx  = (int) (writerPos >>> 5);
 
-                        if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
+                        // if the prospective move has hit the reader (that is in the previous round) "from behind"
+                        if (readerPos == writerPos)
                         {
-                            // if the prospective move has hit the reader (that is in the previous round) "from behind"
-                            if (readerPos == writerPos)
+                            if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
                             {
-                                rixMax = ringsMaxIndex;  // volatile read
-                                boolean isQueueExtensionPossible = ((1 + rixMax) < rings.length);  // if there is room yet for the extension
                                 if (isQueueExtensionPossible)
                                 {
                                     // context: the writer that preceded us (the one that successfully moved to the last position
@@ -371,8 +390,6 @@ public class ConcurrentMultiArrayQueue<T>
                 // that lead from that array of Objects, so one bottom-up pass through the diversions array
                 // that starts at the diversion to 1 + writerRix suffices (i.e. a short linear search)
 
-                rixMax = ringsMaxIndex;  // volatile read
-
                 for (int dix = writerRix; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                 {
                     if (diversions[dix] == writerPos)
@@ -383,15 +400,15 @@ public class ConcurrentMultiArrayQueue<T>
                     }
                 }
 
-                if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
+                // if the prospective move has hit the reader (that is in the previous round) "from behind"
+                if (readerPos == writerPos)
                 {
-                    // if the prospective move has hit the reader (that is in the previous round) "from behind"
-                    if (readerPos == writerPos)
+                    if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
                     {
-                        boolean isQueueExtensionPossible = ((1 + rixMax) < rings.length);  // if there is room yet for the extension
                         if (isQueueExtensionPossible)
                         {
                             extendQueue = true;
+                            break go_forward;
                         }
                         else  // the Queue is now fully extended (but might not have been at the reading of origWriter)
                         {
@@ -420,30 +437,47 @@ public class ConcurrentMultiArrayQueue<T>
                             }
                         }
                     }
+                }
 
-                    // the forward-looking check to prevent the next writer from hitting the reader "from behind"
-                    // on the return path of a diversion (see Paper for explanation)
-                    else
+                // the forward-looking check to prevent the next writer from hitting the reader "from behind"
+                // on the return path of a diversion (see Paper for explanation)
+
+                long testNextWriterPos = writerPos;
+                int testNextWriterRix = writerRix;
+                int testNextWriterIx = writerIx;
+
+                test_next:
+                for (; ((0 != testNextWriterRix) && ((firstArraySize << testNextWriterRix) == (1 + testNextWriterIx))) ;)
+                {
+                    testNextWriterPos = diversions[testNextWriterRix - 1];  // follow the diversion back
+                    if (readerPos == testNextWriterPos)  // if we would hit the reader
                     {
-                        long testNextWriterPos = writerPos;
-                        int testNextWriterRix = writerRix;
-                        int testNextWriterIx = writerIx;
-
-                        test_next:
-                        for (; ((0 != testNextWriterRix) && ((firstArraySize << testNextWriterRix) == (1 + testNextWriterIx))) ;)
+                        if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
                         {
-                            testNextWriterPos = diversions[testNextWriterRix - 1];  // follow the diversion back
-                            if (readerPos == testNextWriterPos)  // if we would hit the reader
+                            if (isQueueExtensionPossible)
                             {
-                                boolean isQueueExtensionPossible = ((1 + rixMax) < rings.length);  // if there is room yet for the extension
-                                if (isQueueExtensionPossible)
-                                {
-                                    extendQueue = true;
-                                }
-                                break test_next;
+                                extendQueue = true;
                             }
-                            testNextWriterRix = (int) (testNextWriterPos & 0x0000_0000_0000_001FL);
-                            testNextWriterIx  = (int) (testNextWriterPos >>> 5);
+                            break test_next;
+                        }
+                    }
+                    testNextWriterRix = (int) (testNextWriterPos & 0x0000_0000_0000_001FL);
+                    testNextWriterIx  = (int) (testNextWriterPos >>> 5);
+
+                    if (preferExtensionOverWaitForB)
+                    {
+                        // preferExtensionOverWaitForB:
+                        // also prevent the next writer from running into waiting for a reader that is in spot B
+                        // on the return path of a diversion
+
+                        Object[] testArray = rings[testNextWriterRix];
+                        if (null != testArray[testNextWriterIx])  // if the reader has not yet cleared the position
+                        {
+                            if (isQueueExtensionPossible)
+                            {
+                                extendQueue = true;
+                            }
+                            break test_next;
                         }
                     }
                 }
@@ -451,6 +485,95 @@ public class ConcurrentMultiArrayQueue<T>
             }
 
             // preparations are done, start the actual work
+
+            Object[] array = null;
+
+            if (! extendQueue)
+            {
+                // wait for the prospective writer position to become cleared by the respective reader
+                // (that is in the previous round)
+                //
+                // three scenarios are possible:
+                //
+                //   1. this has most probably already happened
+                //   2. this shall occur "soon" (if the reader is in spot B and is NOT preempted there)
+                //   3. this may occur "very late" (if the reader is in spot B and IS preempted there)
+                //
+                // (writes to and reads of references are always atomic (JLS 17.7))
+                //
+                // if the writerPosition has moved forward during the waiting, we have to stop it,
+                // because this means that another writer has in the meantime obtained the position,
+                // and possibly also has written to it, so we could wait forever
+                //
+                // (if writerPosition has moved, the CAS would fail anyway)
+                //
+                // the optimal order of the two tests has been found by measurements (i.e. is not a dogma)
+
+                wait_pos_cleared:
+                for (;;)
+                {
+                    if (origWriter != writerPosition.get())  // (volatile read)
+                    {
+                        continue start_anew;  // writerPosition has moved --> Stop waiting, Start anew
+                    }
+                    if (null == array) array = rings[writerRix];  // set array if not yet set
+                    if (null == array[writerIx])
+                    {
+                        break wait_pos_cleared;  // position is cleared, go ahead
+                    }
+
+                    if (preferExtensionOverWaitForB)
+                    {
+                        // preferExtensionOverWaitForB:
+                        // (the other part of this functionality is in the forward-looking check)
+                        //
+                        // What we are doing here is to avoid the waiting by extending the Queue instead.
+                        // This is of course possible only as long as the Queue is not yet fully extended.
+                        //
+                        // This solves the following problem for the writer threads:
+                        // The waiting for the reader, if preempted exactly in spot B (scenario 3 above)
+                        // can last up into the milliseconds range (the preemption gap) and this is where
+                        // the reader threads can inflict ugly latency spikes on the writer threads
+                        // (that are possibly more time-critical / have higher priority).
+                        //
+                        // The extension operations are presumably quicker. Further, they cause
+                        // the Queue to grow to a size where the writerPosition and the readerPosition
+                        // will be so far apart that the problem fades away.
+                        // (This will of course cost memory!)
+                        //
+                        // Here is now a good place to summarize the latency distributions:
+                        //
+                        // In a MULTIPLE-WRITER REGIME, the Enqueue operation has theoretically
+                        // an infinite tail in the latency distribution, because it can loose its CAS
+                        // and start anew an unlimited number of times.
+                        //
+                        // In a SINGLE-WRITER REGIME, the Enqueue operation is wait-free, with two exceptions:
+                        //  1. the extension operation (the allocation of the new array is presumably not wait-free)
+                        //  2. the waiting discussed / avoided here
+                        //
+                        // (Wait-Free == In a bounded number of my steps I make progress)
+
+                        if (isQueueExtensionPossible)
+                        {
+                            extendQueue = true;  // extend the Queue instead of waiting for the reader that is in spot B
+                            break wait_pos_cleared;
+                        }
+                        else
+                        {
+                            // It would be thinkable, at the cost of losing Linearizability,
+                            // to return here "Queue is full" instead of waiting,
+                            // if it would fit some practical purpose ...
+
+                            Thread.yield();  // the Queue is already fully extended: waiting is the only option
+                        }
+                    }
+                    else  // no preferExtensionOverWaitForB (i.e. the original logic)
+                    {
+                        Thread.yield();  // the reader is in spot B, so give him time
+                    }
+                }
+            }
+
             if (extendQueue)
             {
                 // CAS into the writer position our copy of the writer position + the extension-in-progress flag
@@ -471,6 +594,12 @@ public class ConcurrentMultiArrayQueue<T>
                     try
                     {
                         // impossible for writerPos to be already in the diversions array, but better check ...
+                        //
+                        // for preferExtensionOverWaitForB:
+                        // this check would also detect a scenario where we would erroneously extend the Queue
+                        // on the return path of a diversion to avoid waiting for a reader that is in spot B there
+                        // (also the scenario which the forward-looking check should have prevented)
+
                         for (int dix = 0; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                         {
                             if (diversions[dix] == writerPos)
@@ -547,51 +676,6 @@ public class ConcurrentMultiArrayQueue<T>
             }
             else  // no extendQueue
             {
-                // wait for the prospective writer position to become cleared by the respective reader
-                // (this has most probably already happened or shall occur "soon" (if the reader is in spot B))
-                //
-                // (writes to and reads of references are always atomic (JLS 17.7))
-                //
-                // if the writerPosition has moved forward during the waiting, we have to stop it,
-                // because this means that another writer has in the meantime obtained the position,
-                // and possibly also has written to it, so we could wait forever
-                //
-                // (if writerPosition has moved, the CAS would fail anyway)
-                //
-                // the optimal order of the two tests has been found by measurements (i.e. is not a dogma)
-
-                Object[] array = null;
-
-                wait_pos_cleared:
-                for (;;)
-                {
-                    if (origWriter != writerPosition.get())  // (volatile read)
-                    {
-                        continue start_anew;  // writerPosition has moved --> Stop waiting, Start anew
-                    }
-                    if (null == array) array = rings[writerRix];  // set array if not yet set
-                    if (null == array[writerIx])
-                    {
-                        break wait_pos_cleared;  // position is cleared, go ahead
-                    }
-
-                    // In a SINGLE-WRITER REGIME, the Enqueue operation is wait-free, with two exceptions:
-                    //  1. the extension operation (the allocation of the new array is presumably not wait-free)
-                    //  2. the waiting on this spot
-                    //
-                    // (Wait-Free == In a bounded number of my steps I make progress)
-                    //
-                    // It would be possible to avoid the waiting on this spot by extending the Queue instead,
-                    // but to do so comprehensively would make things more complex elsewhere
-                    // (think of this waiting occurring on the return path of a diversion,
-                    // for avoiding of which it would be necessary to extend the forward-looking check).
-                    //
-                    // However, as wait-freedom in the single-writer regime is an important topic,
-                    // let's earmark this as a candidate for further development.
-
-                    Thread.yield();  // the reader is in spot B, so give him time
-                }
-
                 // CAS the prospective writer position
                 if (writerPosition.compareAndSet(origWriter, (writerRound | writerPos)))
                 {
@@ -686,7 +770,7 @@ public class ConcurrentMultiArrayQueue<T>
             // BTW the current solution is also consistent with the fact that it is the concluding CAS
             // that is the linearization point of the extension operation.
 
-            if ((writerRound == readerRound) && (writerPos == readerPos))
+            if ((writerPos == readerPos) && (writerRound == readerRound))
             {
                 return null;  // the reader stands on the writer: the Queue is empty
             }
@@ -772,7 +856,12 @@ public class ConcurrentMultiArrayQueue<T>
             }
 
             // wait for the prospective reader position to become filled by the respective writer
-            // (this has most probably already happened or shall occur "soon" (if the writer is in spot A))
+            //
+            // three scenarios are possible:
+            //
+            //   1. this has most probably already happened
+            //   2. this shall occur "soon" (if the writer is in spot A and is NOT preempted there)
+            //   3. this may occur "very late" (if the writer is in spot A and IS preempted there)
             //
             // (writes to and reads of references are always atomic (JLS 17.7))
             //
@@ -809,7 +898,8 @@ public class ConcurrentMultiArrayQueue<T>
                 // the reader position is now "ours", so clear it and return the Object
                 // (this cannot get re-ordered before the CAS, because it depends on the CAS)
                 // (however it can get re-ordered to later - after the return)
-                // (but: writers wait till they see the position cleared)
+                // (but: writers (in the next round) react by waiting (or extending the Queue)
+                // if they encounter a position that is not yet cleared)
 
                 // Design footnotes 4,5,6 apply on this spot accordingly.
 
@@ -823,15 +913,20 @@ public class ConcurrentMultiArrayQueue<T>
         }
     }
 
-    // Design footnote 8: In a SINGLE-READER REGIME, the Dequeue operation is wait-free, with one exception:
-    //  1. when waiting for a writer that is in spot A
+    // Design footnote 8: The latency distributions of the Dequeue operation:
+    //
+    // In a MULTIPLE-READER REGIME, the Dequeue operation has theoretically an infinite tail in the latency distribution,
+    // because it can loose its CAS and start anew an unlimited number of times.
+    //
+    // In a SINGLE-READER REGIME, the Dequeue operation is wait-free, with one exception:
+    //  1. when waiting for a writer that is in spot A (ugly latency spikes can occur if the writer is preempted in there)
     //
     // If the single reader reads from only one Queue, then to keep waiting is the only option.
     //
     // However, if the single reader reads from multiple Queues, then it would be thinkable,
     // at the cost of losing Linearizability, to return "Queue is empty" instead of this waiting,
     // so that the reader can read from the other Queues in the meantime
-    // (and come back to the would-be-waited-for Object later):
+    // (and come back to the would-be-waited-for Object in "this" Queue later):
     //
     //     Thread.yield(); --> return null;  // return "Queue is empty" instead of waiting for a writer that is in spot A
 
@@ -847,7 +942,8 @@ public class ConcurrentMultiArrayQueue<T>
     //
     //     Thread.yield(); --> return null;  // return "Queue is empty" instead of waiting for a writer that is in spot A
 
-    // Design footnote 10: On machines with a high number of CPU cores, the Thread.yield()s are possibly not needed.
+    // Design footnote 10: On machines with a high number of CPU cores, other wait strategies
+    // than the use of the Thread.yield()s are imaginable.
 
     // Design footnote 11: No countermeasures against False Sharing (like paddings) were attempted / implemented.
 
@@ -873,7 +969,7 @@ public class ConcurrentMultiArrayQueue<T>
         long writerRound = (origWriter & 0xFFFF_FFE0_0000_0000L);
         long writerPos   = (origWriter & 0x0000_000F_FFFF_FFFFL);
 
-        return ((writerRound == readerRound) && (writerPos == readerPos));
+        return ((writerPos == readerPos) && (writerRound == readerRound));
     }
 
     /* _    _ _  _ ____ ____ ____ _ ___  ____ ___  _ _    _ ___ _   _
