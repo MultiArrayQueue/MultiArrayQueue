@@ -348,6 +348,7 @@ start_anew : skip;
 
         // the forward-looking check to prevent the next writer from hitting the reader "from behind"
         // on the return path of a diversion (see Paper for explanation)
+
         int testNextWriterRix = writerRix;
         int testNextWriterIx  = writerIx;
 
@@ -357,6 +358,7 @@ start_anew : skip;
             tmpRix = testNextWriterRix;
             testNextWriterRix = diversions[tmpRix - 1].rix;  // follow the diversion back
             testNextWriterIx  = diversions[tmpRix - 1].ix;
+
             if
             :: ((readerRix == testNextWriterRix) && (readerIx == testNextWriterIx)) ->  // if we would hit the reader
             {
@@ -378,15 +380,26 @@ start_anew : skip;
             :: else;
             fi
 
-            // preferExtensionOverWaitForB:
-            // also prevent the next writer from running into waiting for a reader that is in spot B
-            // on the return path of a diversion
             if
-            :: (preferExtensionOverWaitForB
-             && isQueueExtensionPossible
-             && (0 != rings[testNextWriterRix].element[testNextWriterIx])) ->
+            :: (preferExtensionOverWaitForB) ->
             {
-                EXTEND_QUEUE(3);
+                // preferExtensionOverWaitForB:
+                // also prevent the next writer from running into waiting for a reader that is in spot B
+                // on the return path of a diversion
+                if
+                :: (0 != rings[testNextWriterRix].element[testNextWriterIx]) ->
+                {
+                    if
+                    :: (isQueueExtensionPossible) ->
+                    {
+                        EXTEND_QUEUE(3);
+                    }
+                    :: else;
+                    fi
+                    break;
+                }
+                :: else;
+                fi
             }
             :: else;
             fi
@@ -675,10 +688,8 @@ start_anew : skip;
 
     /*TLWACCH*/
 
-    d_step  // read ringsMaxIndex + work on local variables + read diversions up to ringsMaxIndex
+    d_step  // work on local variables + read ringsMaxIndex + read diversions up to ringsMaxIndex
     {
-        rixMax = ringsMaxIndex;
-
         readerIx ++;  // prospective move forward
 
         // if the prospective move goes "beyond" the end of rings[readerRix]
@@ -711,6 +722,8 @@ start_anew : skip;
         // a diversion that leads to an array of Objects always precedes (in the diversions array) any diversions
         // that lead from that array of Objects, so one bottom-up pass through the diversions array
         // that starts at the diversion to 1 + readerRix suffices (i.e. a short linear search)
+
+        rixMax = ringsMaxIndex;
 
         for (tmpRix : (1 + readerRix) .. rixMax)
         {
