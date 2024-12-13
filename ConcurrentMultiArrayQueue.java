@@ -134,6 +134,7 @@ public class ConcurrentMultiArrayQueue<T>
     private final AtomicLong readerPosition;
 
     private final boolean preferExtensionOverWaitForB;
+    private final boolean preferReturnEmptyOverWaitForA;
 
     // ____ ____ _  _ ____ ___ ____ _  _ ____ ___ ____ ____ ____
     // |    |  | |\ | [__   |  |__/ |  | |     |  |  | |__/ [__
@@ -182,7 +183,7 @@ public class ConcurrentMultiArrayQueue<T>
     public ConcurrentMultiArrayQueue(String name, int initialCapacity, int cntAllowedExtensions)
     throws IllegalArgumentException
     {
-        this(name, initialCapacity, cntAllowedExtensions, false);
+        this(name, initialCapacity, cntAllowedExtensions, false, false);
     }
 
     /*
@@ -194,11 +195,14 @@ public class ConcurrentMultiArrayQueue<T>
         ,int initialCapacity
         ,int cntAllowedExtensions
         ,boolean preferExtensionOverWaitForB
+        ,boolean preferReturnEmptyOverWaitForA
     )
     throws IllegalArgumentException
     {
         this.name = name;
         this.preferExtensionOverWaitForB = preferExtensionOverWaitForB;
+        this.preferReturnEmptyOverWaitForA = preferReturnEmptyOverWaitForA;
+
         if (initialCapacity < 0) {
             throw new IllegalArgumentException(String.format(
                 "%s %s: initialCapacity %,d is negative", qType, name, initialCapacity));
@@ -888,7 +892,44 @@ public class ConcurrentMultiArrayQueue<T>
                 {
                     break wait_pos_filled;  // position is filled, go ahead
                 }
-                Thread.yield();  // the writer is in spot A, so give him time
+                if (preferReturnEmptyOverWaitForA)
+                {
+                    // preferReturnEmptyOverWaitForA:
+                    //
+                    // What we are doing here is to avoid the waiting by returning "Queue is empty" instead.
+                    //
+                    // This goes at the cost of losing Linearizability, because "Queue is empty" can be returned
+                    // although the Queue has never been empty between the invocation of and the return from the Operation,
+                    // i.e. the count of successful Dequeue CASes was never equal to the count of successful Enqueue CASes
+                    // during that time.
+                    //
+                    // This can however benefit the reader threads:
+                    //
+                    // The waiting for the writer, if preempted exactly in spot A (scenario 3 above)
+                    // can last up into the milliseconds range (the preemption gap) and this is where
+                    // the writer threads can inflict ugly latency spikes on the reader threads.
+                    //
+                    // Although the readers cannot force the writers to "speed up", they could spend the time elsewhere.
+                    // For example, if a reader reads from multiple Queues, it can read from the other Queues in the meantime
+                    // and come back to the would-be-waited-for Object in "this" Queue later!
+                    //
+                    // Here is now a good place to summarize the latency distributions:
+                    //
+                    // In a MULTIPLE-READER REGIME, the Dequeue operation has theoretically
+                    // an infinite tail in the latency distribution, because it can loose its CAS
+                    // and start anew an unlimited number of times.
+                    //
+                    // In a SINGLE-READER REGIME, the Dequeue operation is wait-free, with one exception:
+                    //  1. the waiting discussed / avoided here
+                    //
+                    // (Wait-Free == In a bounded number of my steps I make progress)
+
+                    return null;  // return "Queue is empty" instead of waiting for the writer that is in spot A
+                }
+                else  // no preferReturnEmptyOverWaitForA (i.e. the original logic)
+                {
+                    Thread.yield();  // the writer is in spot A, so give him time
+                }
             }
 
             // CAS the prospective reader position
@@ -913,41 +954,22 @@ public class ConcurrentMultiArrayQueue<T>
         }
     }
 
-    // Design footnote 8: The latency distributions of the Dequeue operation:
-    //
-    // In a MULTIPLE-READER REGIME, the Dequeue operation has theoretically an infinite tail in the latency distribution,
-    // because it can loose its CAS and start anew an unlimited number of times.
-    //
-    // In a SINGLE-READER REGIME, the Dequeue operation is wait-free, with one exception:
-    //  1. when waiting for a writer that is in spot A (ugly latency spikes can occur if the writer is preempted in there)
-    //
-    // If the single reader reads from only one Queue, then to keep waiting is the only option.
-    //
-    // However, if the single reader reads from multiple Queues, then it would be thinkable,
-    // at the cost of losing Linearizability, to return "Queue is empty" instead of this waiting,
-    // so that the reader can read from the other Queues in the meantime
-    // (and come back to the would-be-waited-for Object in "this" Queue later):
-    //
-    //     Thread.yield(); --> return null;  // return "Queue is empty" instead of waiting for a writer that is in spot A
-
-    // Design footnote 9: In the SPECIAL CASE when the Queue is used as a "recycle Queue" and its readers
-    // are time-critical threads: Such threads need to Dequeue recycled Objects in bounded time,
-    // and if bounded time is not possible at certain moments (e.g. due to contention peaks),
-    // then it is acceptable to simply allocate new Objects instead.
+    // Design footnote 8: In the SPECIAL CASE when the Queue is used as a "recycle Queue" and has MULTIPLE readers
+    // that are time-critical, i.e. it is not acceptable for them to lose the CAS / start anew many times
+    // (at times of high contention): Then it would be acceptable, to a certain level, if they allocate new Objects instead.
     // (Whether Object allocations occur in bounded time: That is another story.)
-    // In other words: Wait-Freedom is wanted at the cost of losing Linearizability.
-    // In such case it would be thinkable to make below changes in the Dequeue method:
+    // In such special case it would be thinkable to make below changes in the Dequeue method:
     //
-    //     if (3 < startAnewCnt) return null;  // return "Queue is empty" after having started anew 3 times
+    //     if (3 < startAnewCnt) return null;  // return "Queue is empty" after having lost the CAS / started anew 3 times
     //
-    //     Thread.yield(); --> return null;  // return "Queue is empty" instead of waiting for a writer that is in spot A
+    //     and use the Queue with preferReturnEmptyOverWaitForA == true
 
-    // Design footnote 10: On machines with a high number of CPU cores, other wait strategies
+    // Design footnote 9: On machines with a high number of CPU cores, other wait strategies
     // than the use of the Thread.yield()s are imaginable.
 
-    // Design footnote 11: No countermeasures against False Sharing (like paddings) were attempted / implemented.
+    // Design footnote 10: No countermeasures against False Sharing (like paddings) were attempted / implemented.
 
-    // Design footnote 12: Performance-wise, as a Queue that uses CAS, the ConcurrentMultiArrayQueue
+    // Design footnote 11: Performance-wise, as a Queue that uses CAS, the ConcurrentMultiArrayQueue
     // presumably cannot keep up with competitor Queues that use Fetch-and-Increment (e.g. LCRQ by Morrison, Afek).
 
     /**
@@ -1129,7 +1151,7 @@ public class ConcurrentMultiArrayQueue<T>
     that equality means that the readerPosition must not have moved forward between the two reads.
 
     So the second read is the linearization point and at that instant the Queue must have indeed been empty
-    (i.e. the count of successful Enqueue CASes must have been equal to the count of successful Dequeue CASes at that instant).
+    (i.e. the count of successful Dequeue CASes must have been equal to the count of successful Enqueue CASes at that instant).
 
     Operation 7. isEmpty method returns false
     -----------------------------------------

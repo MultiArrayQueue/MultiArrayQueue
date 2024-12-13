@@ -106,6 +106,7 @@ int  readerPositionRix = 0;
 int  readerPositionIx = 0;
 
 bool preferExtensionOverWaitForB = true;
+bool preferReturnEmptyOverWaitForA = false;
 
 /*********************************************
  enqueue process
@@ -772,6 +773,34 @@ go_forward_done :  // prospective move forward is now done
          && (0 != rings[readerRix].element[readerIx])) ->  // position is filled, go ahead
         {
             valueDequeued = rings[readerRix].element[readerIx];
+        }
+        :: ((origReaderRound == readerPositionRound)
+         && (origReaderRix == readerPositionRix)
+         && (origReaderIx == readerPositionIx)
+         && (0 == rings[readerRix].element[readerIx])
+         && (preferReturnEmptyOverWaitForA)) ->
+        {
+            // preferReturnEmptyOverWaitForA:
+            //
+            // What we are doing here is to avoid the waiting by returning "Queue is empty" instead.
+            //
+            // This goes at the cost of losing Linearizability, because "Queue is empty" can be returned
+            // although the Queue has never been empty between the invocation of and the return from the Operation,
+            // i.e. the count of successful Dequeue CASes was never equal to the count of successful Enqueue CASes
+            // during that time.
+            //
+            // This can however benefit the reader threads:
+            //
+            // The waiting for the writer, if preempted exactly in spot A (scenario 3 above)
+            // can last up into the milliseconds range (the preemption gap) and this is where
+            // the writer threads can inflict ugly latency spikes on the reader threads.
+            //
+            // Although the readers cannot force the writers to "speed up", they could spend the time elsewhere.
+            // For example, if a reader reads from multiple Queues, it can read from the other Queues in the meantime
+            // and come back to the would-be-waited-for Object in "this" Queue later!
+
+            printf("PID %d returned Queue empty instead of waiting for the writer that is in spot A\n", _pid);
+            goto dequeue_done;
         }
         fi
     }
