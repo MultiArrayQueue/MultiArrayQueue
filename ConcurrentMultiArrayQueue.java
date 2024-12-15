@@ -471,6 +471,7 @@ public class ConcurrentMultiArrayQueue<T>
                     if (preferExtensionOverWaitForB)
                     {
                         // preferExtensionOverWaitForB:
+                        //
                         // also prevent the next writer from running into waiting for a reader that is in spot B
                         // on the return path of a diversion
 
@@ -535,10 +536,11 @@ public class ConcurrentMultiArrayQueue<T>
                         // This is of course possible only as long as the Queue is not yet fully extended.
                         //
                         // This solves the following problem for the writer threads:
+                        //
                         // The waiting for the reader, if preempted exactly in spot B (scenario 3 above)
-                        // can last up into the milliseconds range (the preemption gap) and this is where
-                        // the reader threads can inflict ugly latency spikes on the writer threads
-                        // (that are possibly more time-critical / have higher priority).
+                        // can last up into the milliseconds range (the reader's suspend time)
+                        // and this is where the reader threads can inflict ugly latency spikes
+                        // on the writer threads (that are possibly more time-critical).
                         //
                         // The extension operations are presumably quicker. Further, they cause
                         // the Queue to grow to a size where the writerPosition and the readerPosition
@@ -547,13 +549,15 @@ public class ConcurrentMultiArrayQueue<T>
                         //
                         // Here is now a good place to summarize the latency distributions:
                         //
-                        // In a MULTIPLE-WRITER REGIME, the Enqueue operation has theoretically
-                        // an infinite tail in the latency distribution, because it can loose its CAS
-                        // and start anew an unlimited number of times.
-                        //
-                        // In a SINGLE-WRITER REGIME, the Enqueue operation is wait-free, with two exceptions:
-                        //  1. the extension operation (the allocation of the new array is presumably not wait-free)
+                        // In a SINGLE-WRITER REGIME, the CAS always succeeds upon the first attempt,
+                        // so the Enqueue operation is wait-free, but with two exceptions:
+                        //  1. the extension operation (because the allocation of the new array
+                        //     is presumably not wait-free)
                         //  2. the waiting discussed / avoided here
+                        //
+                        // In a MULTIPLE-WRITER REGIME, in addition to that, the Enqueue operation can lose
+                        // the race against its competitors (and start anew) an unlimited number of times,
+                        // resulting in a theoretically infinite tail in the latency distribution.
                         //
                         // (Wait-Free == In a bounded number of my steps I make progress)
 
@@ -906,8 +910,9 @@ public class ConcurrentMultiArrayQueue<T>
                     // This can however benefit the reader threads:
                     //
                     // The waiting for the writer, if preempted exactly in spot A (scenario 3 above)
-                    // can last up into the milliseconds range (the preemption gap) and this is where
-                    // the writer threads can inflict ugly latency spikes on the reader threads.
+                    // can last up into the milliseconds range (the writer's suspend time)
+                    // and this is where the writer threads can inflict ugly latency spikes
+                    // on the reader threads.
                     //
                     // Although the readers cannot force the writers to "speed up", they could spend the time elsewhere.
                     // For example, if a reader reads from multiple Queues, it can read from the other Queues in the meantime
@@ -915,12 +920,13 @@ public class ConcurrentMultiArrayQueue<T>
                     //
                     // Here is now a good place to summarize the latency distributions:
                     //
-                    // In a MULTIPLE-READER REGIME, the Dequeue operation has theoretically
-                    // an infinite tail in the latency distribution, because it can loose its CAS
-                    // and start anew an unlimited number of times.
-                    //
-                    // In a SINGLE-READER REGIME, the Dequeue operation is wait-free, with one exception:
+                    // In a SINGLE-READER REGIME, the CAS always succeeds upon the first attempt,
+                    // so the Dequeue operation is wait-free, but with one exception:
                     //  1. the waiting discussed / avoided here
+                    //
+                    // In a MULTIPLE-READER REGIME, in addition to that, the Dequeue operation can lose
+                    // the race against its competitors (and start anew) an unlimited number of times,
+                    // resulting in a theoretically infinite tail in the latency distribution.
                     //
                     // (Wait-Free == In a bounded number of my steps I make progress)
 
@@ -954,23 +960,27 @@ public class ConcurrentMultiArrayQueue<T>
         }
     }
 
-    // Design footnote 8: In the SPECIAL CASE when the Queue is used as a "recycle Queue" and has MULTIPLE readers
-    // that are time-critical, i.e. it is not acceptable for them to lose the CAS / start anew many times
-    // (at times of high contention): Then it would be acceptable, to a certain level, if they allocate new Objects instead.
-    // (Whether Object allocations occur in bounded time: That is another story.)
-    // In such special case it would be thinkable to make below changes in the Dequeue method:
+    // Design footnote 8:
     //
-    //     if (3 < startAnewCnt) return null;  // return "Queue is empty" after having lost the CAS / started anew 3 times
+    // In the MULTIPLE-WRITER/READER REGIMES there are theoretically infinite tails in the latency distributions.
+    // In the tests under heavy contention, indeed, "unlucky" operations were observed that have lost their races
+    // against their competitors (and started anew) several 1000 times!
     //
-    //     and use the Queue with preferReturnEmptyOverWaitForA == true
+    // It is clear that the missing guarantee of Wait-Freedom limits the use of this Queue for time-critical purposes.
+    //
+    // It would be possible to construct a concurrent wait-free Multi-Array Queue by applying the ideas of Kogan and Petrank,
+    // but this would require keeping of additional information in the arrays, along with each Object reference.
+    // Assumed that this additional information could be packed into a 64-bit long variable,
+    // this would double the memory consumption, and it would further require a double-width (128 bit) CAS,
+    // which is not accessible from Java (referring to Design footnote 4).
 
     // Design footnote 9: On machines with a high number of CPU cores, other wait strategies
-    // than the use of the Thread.yield()s are imaginable.
+    // than the use of the Thread.yield()s may be more appropriate.
 
     // Design footnote 10: No countermeasures against False Sharing (like paddings) were attempted / implemented.
 
     // Design footnote 11: Performance-wise, as a Queue that uses CAS, the ConcurrentMultiArrayQueue
-    // presumably cannot keep up with competitor Queues that use Fetch-and-Increment (e.g. LCRQ by Morrison, Afek).
+    // presumably cannot keep up with competitor Queues that use Fetch-and-Increment (e.g. LCRQ by Morrison and Afek).
 
     /**
      * Concurrent isEmpty method

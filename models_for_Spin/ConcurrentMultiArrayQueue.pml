@@ -385,6 +385,7 @@ start_anew : skip;
             :: (preferExtensionOverWaitForB) ->
             {
                 // preferExtensionOverWaitForB:
+                //
                 // also prevent the next writer from running into waiting for a reader that is in spot B
                 // on the return path of a diversion
                 if
@@ -469,10 +470,11 @@ go_forward_done :  // prospective move forward is now done
                 // This is of course possible only as long as the Queue is not yet fully extended.
                 //
                 // This solves the following problem for the writer threads:
+                //
                 // The waiting for the reader, if preempted exactly in spot B (scenario 3 above)
-                // can last up into the milliseconds range (the preemption gap) and this is where
-                // the reader threads can inflict ugly latency spikes on the writer threads
-                // (that are possibly more time-critical / have higher priority).
+                // can last up into the milliseconds range (the reader's suspend time)
+                // and this is where the reader threads can inflict ugly latency spikes
+                // on the writer threads (that are possibly more time-critical).
                 //
                 // The extension operations are presumably quicker. Further, they cause
                 // the Queue to grow to a size where the writerPosition and the readerPosition
@@ -792,8 +794,9 @@ go_forward_done :  // prospective move forward is now done
             // This can however benefit the reader threads:
             //
             // The waiting for the writer, if preempted exactly in spot A (scenario 3 above)
-            // can last up into the milliseconds range (the preemption gap) and this is where
-            // the writer threads can inflict ugly latency spikes on the reader threads.
+            // can last up into the milliseconds range (the writer's suspend time)
+            // and this is where the writer threads can inflict ugly latency spikes
+            // on the reader threads.
             //
             // Although the readers cannot force the writers to "speed up", they could spend the time elsewhere.
             // For example, if a reader reads from multiple Queues, it can read from the other Queues in the meantime
