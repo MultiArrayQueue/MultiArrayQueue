@@ -69,7 +69,7 @@ public class ConcurrentMultiArrayQueue<T>
     // Naming of the Queue is practical in bigger projects with many Queues
     private final String name;
 
-    // Array of references to actual (exponentially growing) arrays of Objects
+    // Array of references to the actual (exponentially growing) arrays of Objects
     private final Object[][] rings;  // the actual array of arrays of Objects
     private volatile int ringsMaxIndex;  // maximum index that contains an allocated array of Objects: only grows + volatile
     private final int firstArraySize;  // size of rings[0] (the first array of Objects)
@@ -80,7 +80,7 @@ public class ConcurrentMultiArrayQueue<T>
     // diversions[1]: position of the diversion that leads to rings[2]
     //    ... and so on
     //
-    // Interpretation of diversion[ringsIndex]:
+    // Interpretation of diversion[ringsIndex - 1]:
     // Divert to rings[ringsIndex] immediately before it + on the return path go back exactly onto it.
     // It is not allowed for two or more diversions to exist on one place (because otherwise we could not conclude
     // from the position alone on which diversion we are). A diversion, once inserted, is immutable.
@@ -91,15 +91,13 @@ public class ConcurrentMultiArrayQueue<T>
     //
     // Interpretation of readerPosition:
     // The last position read. The reader (dequeuer) prepares a prospective reader position and tries to CAS it.
-    // If successful, it then reads and removes the Object from this new reader position.
+    // If successful, it then reads and clears the Object from this new reader position.
     //
     // The Queue is empty if the reader stands on the same position as the writer.
     // The Queue is full if the writer stands immediately behind the reader (that is in the previous round)
     // and the Queue cannot extend anymore.
     //
     // This implies that the Queue can take at most one less Objects than there are positions in the array(s).
-    // This is a traditional way of implementing ring-buffers and it leads to a simpler and faster code
-    // compared to an alternative implementation which would utilize the array(s) fully.
     //
     // When the writerPosition/readerPosition stands on a diversion then it means that the writer/reader
     // is on the return path of that diversion (also not on its entry side!).
@@ -113,7 +111,7 @@ public class ConcurrentMultiArrayQueue<T>
     //                                 (5 bits, also up to 31 is possible, which is sufficient)
     //    mask 0x0000_000F_FFFF_FFE0L: location (index, ix) in the array of Objects
     //                                 (31 bits)
-    //    mask 0x0000_0010_0000_0000L: flag that an extension by new array of Objects + new diversion is in progress
+    //    mask 0x0000_0010_0000_0000L: flag that an extension by a new array of Objects + new diversion is in progress
     //                                 (1 bit, in writerPosition only)
     //    mask 0xFFFF_FFE0_0000_0000L: round number to prevent the ABA problem, incremented on each passing of rings[0][0]
     //                                 (27 bits, in writerPosition and readerPosition only, leftmost item, so overflow is ok)
@@ -240,8 +238,11 @@ public class ConcurrentMultiArrayQueue<T>
         }
         ringsMaxIndex = 0;  // we now start with only rings[0] allocated
 
-        writerPosition = new AtomicLong(((long)(firstArraySize - 1)) << 5);  // next prospective move leads to rings[0][0]
-        readerPosition = new AtomicLong(((long)(firstArraySize - 1)) << 5);  // ditto
+        // writerPosition and readerPosition start so that the next prospective move leads to rings[0][0]
+        // and an overflow of the round number will get auto-tested in the over-next round
+        long startPos = (0x7FFF_FFC0_0000_0000L | (((long)(firstArraySize - 1)) << 5));
+        writerPosition = new AtomicLong(startPos);
+        readerPosition = new AtomicLong(startPos);
     }
 
     /**
@@ -304,7 +305,7 @@ public class ConcurrentMultiArrayQueue<T>
             // read the three volatiles in this order: writerPosition --> readerPosition --> ringsMaxIndex
             //
             // volatile ensures that the reads do not get re-ordered, because reading of other variables cannot get re-ordered
-            // before reading a volatile variable
+            // before reading of a volatile variable
             //
             // AtomicLong.get() has the memory effects of reading a volatile variable
             // according to https://docs.oracle.com/javase/8/docs/api/java/util/concurrent/atomic/package-summary.html
@@ -504,13 +505,13 @@ public class ConcurrentMultiArrayQueue<T>
                 //   2. this shall occur "soon" (if the reader is in spot B and is NOT preempted there)
                 //   3. this may occur "very late" (if the reader is in spot B and IS preempted there)
                 //
-                // (writes to and reads of references are always atomic (JLS 17.7))
-                //
                 // if the writerPosition has moved forward during the waiting, we have to stop it,
                 // because this means that another writer has in the meantime obtained the position,
                 // and possibly also has written to it, so we could wait forever
                 //
                 // (if writerPosition has moved, the CAS would fail anyway)
+                //
+                // (writes to and reads of references are always atomic (JLS 17.7))
                 //
                 // the optimal order of the two tests has been found by measurements (i.e. is not a dogma)
 
@@ -549,7 +550,7 @@ public class ConcurrentMultiArrayQueue<T>
                         //
                         // Here is now a good place to summarize the latency distributions:
                         //
-                        // In a SINGLE-WRITER REGIME, the CAS always succeeds upon the first attempt,
+                        // In a SINGLE-WRITER REGIME, the CAS always succeeds in the first attempt,
                         // so the Enqueue operation is wait-free, but with two exceptions:
                         //  1. the extension operation (because the allocation of the new array
                         //     is presumably not wait-free)
@@ -570,7 +571,7 @@ public class ConcurrentMultiArrayQueue<T>
                         {
                             // It would be thinkable, at the cost of losing Linearizability,
                             // to return here "Queue is full" instead of waiting,
-                            // if it would fit some practical purpose ...
+                            // if it would serve some practical purpose ...
 
                             Thread.yield();  // the Queue is already fully extended: waiting is the only option
                         }
@@ -708,14 +709,16 @@ public class ConcurrentMultiArrayQueue<T>
                     // This would however require each Object to be accompanied by the round number,
                     // effectively doubling the memory consumption, and it would further require
                     // a double-width (128 bit) CAS, which is available e.g. on i86-64 (CMPXCHG16B),
-                    // but is not accessible from Java.
+                    // but is not accessible from Java. (Keep in mind that in order to keep the Queue
+                    // garbage-free, allocations of "struct objects" and indirections to them are prohibited.)
 
                     // Design footnote 5: To implement lock-freedom on this spot by the principles of
                     // the a.m. Michael & Scott Queue via the operations available in Java,
                     // one option would be to store integers (instead of Objects) in the Queue,
                     // so that the integers AND the round numbers could be together accommodated
-                    // in the 64-bit AtomicLongs. This would however require the translation between
-                    // the integers and the Objects to be done "somewhere" outside of the Queue ...
+                    // in 64-bit AtomicLongs which would then be the elements of the arrays.
+                    // This would however require the translation between the integers and the Objects
+                    // to be done "somewhere" outside of the Queue ...
 
                     // Design footnote 6: The other means of approaching lock-freedom on this spot
                     // are in the Paper: Double-Location CAS (rather theoretical) and pinning
@@ -755,7 +758,7 @@ public class ConcurrentMultiArrayQueue<T>
             // read the three volatiles in this order: readerPosition --> writerPosition --> ringsMaxIndex
             //
             // volatile ensures that the reads do not get re-ordered, because reading of other variables cannot get re-ordered
-            // before reading a volatile variable
+            // before reading of a volatile variable
             //
             // AtomicLong.get() has the memory effects of reading a volatile variable
 
@@ -871,13 +874,13 @@ public class ConcurrentMultiArrayQueue<T>
             //   2. this shall occur "soon" (if the writer is in spot A and is NOT preempted there)
             //   3. this may occur "very late" (if the writer is in spot A and IS preempted there)
             //
-            // (writes to and reads of references are always atomic (JLS 17.7))
-            //
             // if the readerPosition has moved forward during the waiting, we have to stop it,
             // because this means that another reader has in the meantime obtained the position,
             // and possibly also has cleared it, so we could wait forever
             //
             // (if readerPosition has moved, the CAS would fail anyway)
+            //
+            // (writes to and reads of references are always atomic (JLS 17.7))
             //
             // the optimal order of the two tests has been found by measurements (i.e. is not a dogma)
 
@@ -920,7 +923,7 @@ public class ConcurrentMultiArrayQueue<T>
                     //
                     // Here is now a good place to summarize the latency distributions:
                     //
-                    // In a SINGLE-READER REGIME, the CAS always succeeds upon the first attempt,
+                    // In a SINGLE-READER REGIME, the CAS always succeeds in the first attempt,
                     // so the Dequeue operation is wait-free, but with one exception:
                     //  1. the waiting discussed / avoided here
                     //
@@ -964,7 +967,7 @@ public class ConcurrentMultiArrayQueue<T>
     //
     // In the MULTIPLE-WRITER/READER REGIMES there are theoretically infinite tails in the latency distributions.
     // In the tests under heavy contention, indeed, "unlucky" operations were observed that have lost their races
-    // against their competitors (and started anew) several 1000 times!
+    // (and started anew) several 1000 times!
     //
     // It is clear that the missing guarantee of Wait-Freedom limits the use of this Queue for time-critical purposes.
     //

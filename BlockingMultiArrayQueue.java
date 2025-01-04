@@ -65,7 +65,7 @@ public class BlockingMultiArrayQueue<T>
     // Naming of the Queue is practical in bigger projects with many Queues
     private final String name;
 
-    // Array of references to actual (exponentially growing) arrays of Objects
+    // Array of references to the actual (exponentially growing) arrays of Objects
     private final Object[][] rings;  // the actual array of arrays of Objects
     private int ringsMaxIndex;  // maximum index that contains an allocated array of Objects: only grows
     private final int firstArraySize;  // size of rings[0] (the first array of Objects)
@@ -76,7 +76,7 @@ public class BlockingMultiArrayQueue<T>
     // diversions[1]: position of the diversion that leads to rings[2]
     //    ... and so on
     //
-    // Interpretation of diversion[ringsIndex]:
+    // Interpretation of diversion[ringsIndex - 1]:
     // Divert to rings[ringsIndex] immediately before it + on the return path go back exactly onto it.
     // It is not allowed for two or more diversions to exist on one place (because otherwise we could not conclude
     // from the position alone on which diversion we are). A diversion, once inserted, is immutable.
@@ -90,8 +90,6 @@ public class BlockingMultiArrayQueue<T>
     // and the Queue cannot extend anymore.
     //
     // This implies that the Queue can take at most one less Objects than there are positions in the array(s).
-    // This is a traditional way of implementing ring-buffers and it leads to a simpler and faster code
-    // compared to an alternative implementation which would utilize the array(s) fully.
     //
     // When the writerPosition/readerPosition stands on a diversion then it means that the writer/reader
     // is on the return path of that diversion (also not on its entry side!).
@@ -214,8 +212,9 @@ public class BlockingMultiArrayQueue<T>
         }
         ringsMaxIndex = 0;  // we now start with only rings[0] allocated
 
-        writerPosition = (((long)(firstArraySize - 1)) << 5);  // next prospective move leads to rings[0][0]
-        readerPosition = (((long)(firstArraySize - 1)) << 5);  // ditto
+        // writerPosition and readerPosition start so that the next prospective move leads to rings[0][0]
+        writerPosition = (((long)(firstArraySize - 1)) << 5);
+        readerPosition = writerPosition;
 
         lock = new ReentrantLock(fair);
         notEmpty = lock.newCondition();
