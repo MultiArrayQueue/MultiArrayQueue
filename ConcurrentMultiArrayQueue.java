@@ -74,7 +74,7 @@ public class ConcurrentMultiArrayQueue<T>
     private volatile int ringsMaxIndex;  // maximum index that contains an allocated array of Objects: only grows + volatile
     private final int firstArraySize;  // size of rings[0] (the first array of Objects)
 
-    // Array of diversions (to higher arrays of Objects) and Atomic writer/reader positions
+    // Array of diversions (to higher arrays of Objects) and the Atomic writer/reader positions
     //
     // diversions[0]: position of the diversion that leads to rings[1]
     // diversions[1]: position of the diversion that leads to rings[2]
@@ -82,20 +82,20 @@ public class ConcurrentMultiArrayQueue<T>
     //
     // Interpretation of diversion[ringsIndex - 1]:
     // Divert to rings[ringsIndex] immediately before it + on the return path go back exactly onto it.
-    // It is not allowed for two or more diversions to exist on one place (because otherwise we could not conclude
+    // It is not allowed for two or more diversions to co-exist on one place (because otherwise we could not conclude
     // from the position alone on which diversion we are). A diversion, once inserted, is immutable.
     //
     // Interpretation of writerPosition:
-    // The last position written. The writer (enqueuer) prepares a prospective writer position and tries to CAS it.
+    // The last position written. The writer (enqueuer) calculates the next prospective writer position and tries to CAS it.
     // If successful, it then writes the Object into this new writer position.
     //
     // Interpretation of readerPosition:
-    // The last position read. The reader (dequeuer) prepares a prospective reader position and tries to CAS it.
+    // The last position read. The reader (dequeuer) calculates the next prospective reader position and tries to CAS it.
     // If successful, it then reads and clears the Object from this new reader position.
     //
     // The Queue is empty if the reader stands on the same position as the writer.
     // The Queue is full if the writer stands immediately behind the reader (that is in the previous round)
-    // and the Queue cannot extend anymore.
+    // in a situation when the Queue cannot extend anymore.
     //
     // This implies that the Queue can take at most one less Objects than there are positions in the array(s).
     //
@@ -314,7 +314,7 @@ public class ConcurrentMultiArrayQueue<T>
 
             // if another writer is currently extending the Queue:
             //
-            // do not go ahead with the extension-in-progress flag (prevent CASes that would compare with an origWriter that contains
+            // do not go ahead with the extension-in-progress flag (i.e. prevent CASes that would compare with an origWriter that contains
             // the extension-in-progress flag) --> wait for the other writer to finish the extension operation (or fail)
             if (0L != (origWriter & 0x0000_0010_0000_0000L))
             {
@@ -471,9 +471,9 @@ public class ConcurrentMultiArrayQueue<T>
 
                     if (preferExtensionOverWaitForB)
                     {
-                        // preferExtensionOverWaitForB:
+                        // if preferExtensionOverWaitForB:
                         //
-                        // also prevent the next writer from running into waiting for a reader that is in spot B
+                        // additionally prevent the next writer from running into waiting for a reader that is in spot B
                         // on the return path of a diversion
 
                         Object[] testArray = rings[testNextWriterRix];
@@ -505,7 +505,7 @@ public class ConcurrentMultiArrayQueue<T>
                 //   2. this shall occur "soon" (if the reader is in spot B and is NOT preempted there)
                 //   3. this may occur "very late" (if the reader is in spot B and IS preempted there)
                 //
-                // if the writerPosition has moved forward during the waiting, we have to stop it,
+                // if the writerPosition has moved forward during the waiting, we have to stop the waiting,
                 // because this means that another writer has in the meantime obtained the position,
                 // and possibly also has written to it, so we could wait forever
                 //
@@ -538,10 +538,10 @@ public class ConcurrentMultiArrayQueue<T>
                         //
                         // This solves the following problem for the writer threads:
                         //
-                        // The waiting for the reader, if preempted exactly in spot B (scenario 3 above)
-                        // can last up into the milliseconds range (the reader's suspend time)
+                        // The waiting for the reader - if he is preempted exactly in spot B (scenario 3 above)
+                        // - can last up into the milliseconds range (the reader's suspend time)
                         // and this is where the reader threads can inflict ugly latency spikes
-                        // on the writer threads (that are possibly more time-critical).
+                        // on the writer threads (which are possibly more time-critical).
                         //
                         // The extension operations are presumably quicker. Further, they cause
                         // the Queue to grow to a size where the writerPosition and the readerPosition
@@ -605,9 +605,9 @@ public class ConcurrentMultiArrayQueue<T>
                         // impossible for writerPos to be already in the diversions array, but better check ...
                         //
                         // for preferExtensionOverWaitForB:
-                        // this check would also detect a scenario where we would erroneously extend the Queue
+                        // this check would also detect a scenario where we would erroneously try to extend the Queue
                         // on the return path of a diversion to avoid waiting for a reader that is in spot B there
-                        // (also the scenario which the forward-looking check should have prevented)
+                        // (also the scenario for which the forward-looking check is there too to prevent)
 
                         for (int dix = 0; dix < rixMax; dix ++)  // for optimization: dix == rix - 1
                         {
@@ -629,7 +629,7 @@ public class ConcurrentMultiArrayQueue<T>
 
                         diversions[rixMax] = writerPos;  // the new diversion (index rixMaxNew - 1) = the prospective writer position
 
-                        ringsMaxIndex = rixMaxNew;  // increment ringsMaxIndex (volatile write AFTER writes to rings and diversions)
+                        ringsMaxIndex = rixMaxNew;  // increment ringsMaxIndex (a volatile write AFTER the writes to rings and diversions)
 
                         writerPos = ((long) rixMaxNew);  // new writer position = first array element of the new array
 
@@ -874,7 +874,7 @@ public class ConcurrentMultiArrayQueue<T>
             //   2. this shall occur "soon" (if the writer is in spot A and is NOT preempted there)
             //   3. this may occur "very late" (if the writer is in spot A and IS preempted there)
             //
-            // if the readerPosition has moved forward during the waiting, we have to stop it,
+            // if the readerPosition has moved forward during the waiting, we have to stop the waiting,
             // because this means that another reader has in the meantime obtained the position,
             // and possibly also has cleared it, so we could wait forever
             //
@@ -912,8 +912,8 @@ public class ConcurrentMultiArrayQueue<T>
                     //
                     // This can however benefit the reader threads:
                     //
-                    // The waiting for the writer, if preempted exactly in spot A (scenario 3 above)
-                    // can last up into the milliseconds range (the writer's suspend time)
+                    // The waiting for the writer - if he is preempted exactly in spot A (scenario 3 above)
+                    // - can last up into the milliseconds range (the writer's suspend time)
                     // and this is where the writer threads can inflict ugly latency spikes
                     // on the reader threads.
                     //
@@ -1017,12 +1017,13 @@ public class ConcurrentMultiArrayQueue<T>
     at which the operations instantaneously take effect.
 
     The idea is that by ordering the concurrently running operations by their linearization points, one obtains
-    a linear (i.e. sequential / single threaded) execution history of that operations that give the same results.
+    a linear (i.e. sequential / single-threaded) execution history of that operations that give the same results.
 
     It is advantageous to prove linearizability theoretically via the linearization points,
     not only because it provides insights, but also because testing it experimentally may be intractable:
-    Imagine a situation with 10 threads running operations on the Queue concurrently. With how many linear execution histories
-    (permutations) of the 10 operations one would have to compare the results: 10! = 3,6 million.
+    Imagine a situation with 10 threads running operations on the Queue concurrently.
+    How big would be the set of linear / single-threaded execution histories (permutations) of these 10 operations
+    on the same Queue to compare any concurrent result with: 10! = 3,6 million.
 
     In the following we identify the linearization points of all Operations and prove that if any actions occur
     outside of the linearization points (i.e. not atomically with them), then that actions are either irrelevant
@@ -1034,7 +1035,7 @@ public class ConcurrentMultiArrayQueue<T>
     ----------------------------------------------------------
 
     The linearization point is the successful CAS on writerPosition that exchanges the
-    original writer position against the newly prepared (prospective) writer position.
+    original writer position against the calculated next prospective writer position.
 
     Nothing happens before this linearization point (except of reads and work on local variables).
 
@@ -1123,7 +1124,7 @@ public class ConcurrentMultiArrayQueue<T>
     (i.e. the difference between the counts of successful Enqueue CASes and successful Dequeue CASes
     at that instant must have been equal to the maximum capacity of the Queue).
 
-    This all must have happened in a situation when the Queue was already fully extended and the writerPosition
+    For "Queue is full", this all must have happened in a situation when the Queue was already fully extended and the writerPosition
     (and then implicitly also the readerPosition (because read second)) has been read from that state of the Queue.
 
     If the last mentioned circumstance cannot be assured from the data at the respective spot in the program code,
@@ -1139,7 +1140,7 @@ public class ConcurrentMultiArrayQueue<T>
     --------------------------------
 
     The linearization point is the successful CAS on readerPosition that exchanges the original reader position
-    against the newly prepared (prospective) reader position.
+    against the calculated next prospective reader position.
 
     Nothing happens before this linearization point (except of reads and work on local variables).
 

@@ -70,7 +70,7 @@ public class BlockingMultiArrayQueue<T>
     private int ringsMaxIndex;  // maximum index that contains an allocated array of Objects: only grows
     private final int firstArraySize;  // size of rings[0] (the first array of Objects)
 
-    // Array of diversions (to higher arrays of Objects) and writer/reader positions
+    // Array of diversions (to higher arrays of Objects) and the writer/reader positions
     //
     // diversions[0]: position of the diversion that leads to rings[1]
     // diversions[1]: position of the diversion that leads to rings[2]
@@ -78,7 +78,7 @@ public class BlockingMultiArrayQueue<T>
     //
     // Interpretation of diversion[ringsIndex - 1]:
     // Divert to rings[ringsIndex] immediately before it + on the return path go back exactly onto it.
-    // It is not allowed for two or more diversions to exist on one place (because otherwise we could not conclude
+    // It is not allowed for two or more diversions to co-exist on one place (because otherwise we could not conclude
     // from the position alone on which diversion we are). A diversion, once inserted, is immutable.
     //
     // Interpretation of writerPosition: The last position written.
@@ -87,7 +87,7 @@ public class BlockingMultiArrayQueue<T>
     //
     // The Queue is empty if the reader stands on the same position as the writer.
     // The Queue is full if the writer stands immediately behind the reader (that is in the previous round)
-    // and the Queue cannot extend anymore.
+    // in a situation when the Queue cannot extend anymore.
     //
     // This implies that the Queue can take at most one less Objects than there are positions in the array(s).
     //
