@@ -384,9 +384,9 @@ start_anew : skip;
             if
             :: (preferExtensionOverWaitForB) ->
             {
-                // preferExtensionOverWaitForB:
+                // if preferExtensionOverWaitForB:
                 //
-                // also prevent the next writer from running into waiting for a reader that is in spot B
+                // additionally prevent the next writer from running into waiting for a reader that is in spot B
                 // on the return path of a diversion
                 if
                 :: (0 != rings[testNextWriterRix].element[testNextWriterIx]) ->
@@ -434,7 +434,7 @@ go_forward_done :  // prospective move forward is now done
             //   2. this shall occur "soon" (if the reader is in spot B and is NOT preempted there)
             //   3. this may occur "very late" (if the reader is in spot B and IS preempted there)
             //
-            // if the writerPosition has moved forward during the waiting, we have to stop it,
+            // if the writerPosition has moved forward during the waiting, we have to stop the waiting,
             // because this means that another writer has in the meantime obtained the position,
             // and possibly also has written to it, so we could wait forever
             //
@@ -471,10 +471,10 @@ go_forward_done :  // prospective move forward is now done
                 //
                 // This solves the following problem for the writer threads:
                 //
-                // The waiting for the reader, if preempted exactly in spot B (scenario 3 above)
-                // can last up into the milliseconds range (the reader's suspend time)
+                // The waiting for the reader - if he is preempted exactly in spot B (scenario 3 above)
+                // - can last up into the milliseconds range (the reader's suspend time)
                 // and this is where the reader threads can inflict ugly latency spikes
-                // on the writer threads (that are possibly more time-critical).
+                // on the writer threads (which are possibly more time-critical).
                 //
                 // The extension operations are presumably quicker. Further, they cause
                 // the Queue to grow to a size where the writerPosition and the readerPosition
@@ -541,9 +541,9 @@ go_forward_done :  // prospective move forward is now done
                 // impossible for writerPos to be already in the diversions array, but better check ...
                 //
                 // for preferExtensionOverWaitForB:
-                // this check would also detect a scenario where we would erroneously extend the Queue
+                // this check would also detect a scenario where we would erroneously try to extend the Queue
                 // on the return path of a diversion to avoid waiting for a reader that is in spot B there
-                // (also the scenario which the forward-looking check should have prevented)
+                // (also the scenario for which the forward-looking check is there too to prevent)
 
                 for (tmpRix : 1 .. rixMax)
                 {
@@ -754,7 +754,7 @@ go_forward_done :  // prospective move forward is now done
     //   2. this shall occur "soon" (if the writer is in spot A and is NOT preempted there)
     //   3. this may occur "very late" (if the writer is in spot A and IS preempted there)
     //
-    // if the readerPosition has moved forward during the waiting, we have to stop it,
+    // if the readerPosition has moved forward during the waiting, we have to stop the waiting,
     // because this means that another reader has in the meantime obtained the position,
     // and possibly also has cleared it, so we could wait forever
     //
@@ -793,8 +793,8 @@ go_forward_done :  // prospective move forward is now done
             //
             // This can however benefit the reader threads:
             //
-            // The waiting for the writer, if preempted exactly in spot A (scenario 3 above)
-            // can last up into the milliseconds range (the writer's suspend time)
+            // The waiting for the writer - if he is preempted exactly in spot A (scenario 3 above)
+            // - can last up into the milliseconds range (the writer's suspend time)
             // and this is where the writer threads can inflict ugly latency spikes
             // on the reader threads.
             //
