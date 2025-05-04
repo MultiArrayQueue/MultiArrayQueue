@@ -98,6 +98,9 @@ public class ConcurrentMultiArrayQueue<T>
     // in a situation when the Queue cannot extend anymore.
     //
     // This implies that the Queue can take at most one less Objects than there are positions in the array(s).
+    // The full utilization of the array(s) could theoretically be achieved by the help of the round number,
+    // but then to be consistent with the BlockingMultiArrayQueue (where the round number is not present)
+    // it would have to be introduced there.
     //
     // When the writerPosition/readerPosition stands on a diversion then it means that the writer/reader
     // is on the return path of that diversion (also not on its entry side!).
@@ -406,16 +409,22 @@ public class ConcurrentMultiArrayQueue<T>
                 }
 
                 // if the prospective move has hit the reader (that is in the previous round) "from behind"
+                //
+                // note that we have to check if the reader is in the previous round only if we are going to return
+                // "Queue is full", because the CASes check it implicitly: If the reader we have hit "from behind"
+                // was in the same (or even later) round, then it would mean that our origWriter is outdated,
+                // so either CAS would fail (good!).
+
                 if (readerPos == writerPos)
                 {
-                    if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
+                    if (isQueueExtensionPossible)
                     {
-                        if (isQueueExtensionPossible)
-                        {
-                            extendQueue = true;
-                            break go_forward;
-                        }
-                        else  // the Queue is now fully extended (but might not have been at the reading of origWriter)
+                        extendQueue = true;
+                        break go_forward;
+                    }
+                    else  // the Queue is now fully extended (but might not have been at the reading of origWriter)
+                    {
+                        if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
                         {
                             // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
                             if (recheckFromFullyExtended)  // we have already re-checked from here, i.e. from the fully extended state
@@ -457,14 +466,11 @@ public class ConcurrentMultiArrayQueue<T>
                     testNextWriterPos = diversions[testNextWriterRix - 1];  // follow the diversion back
                     if (readerPos == testNextWriterPos)  // if we would hit the reader
                     {
-                        if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
+                        if (isQueueExtensionPossible)
                         {
-                            if (isQueueExtensionPossible)
-                            {
-                                extendQueue = true;
-                            }
-                            break test_next;
+                            extendQueue = true;
                         }
+                        break test_next;
                     }
                     testNextWriterRix = (int) (testNextWriterPos & 0x0000_0000_0000_001FL);
                     testNextWriterIx  = (int) (testNextWriterPos >>> 5);

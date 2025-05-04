@@ -74,7 +74,7 @@ typedef diversion {
     int ix = 0;
 }
 
-diversion diversions[CNT_ALLOWED_EXTENSIONS];
+diversion diversions[1 + CNT_ALLOWED_EXTENSIONS];  // plus one to avoid an error when testing with CNT_ALLOWED_EXTENSIONS == 0
 
 int  writerPositionRix = 0;
 int  writerPositionIx = 0;

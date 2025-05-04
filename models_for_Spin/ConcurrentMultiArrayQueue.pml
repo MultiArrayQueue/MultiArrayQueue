@@ -42,7 +42,7 @@
 // Hint: For construction of the pre-fill scenario it is helpful to use the Interactive Simulator:
 // https://MultiArrayQueue.github.io/Simulator_MultiArrayQueue.html
 
-#define PREFILL_STEPS 6
+#define PREFILL_STEPS 0
 
 int prefill[6] = { 1, 0, 1, 0, 1, 1 }  // 1 = enqueue, 0 = dequeue
 
@@ -94,7 +94,7 @@ typedef diversion {
     int ix = 0;
 }
 
-diversion diversions[CNT_ALLOWED_EXTENSIONS];
+diversion diversions[1 + CNT_ALLOWED_EXTENSIONS];  // plus one to avoid an error when testing with CNT_ALLOWED_EXTENSIONS == 0
 
 int  writerPositionRound = 0;
 bool writerPositionFlag = false;
@@ -301,20 +301,26 @@ start_anew : skip;
         }
 
         // if the prospective move has hit the reader (that is in the previous round) "from behind"
+        //
+        // note that we have to check if the reader is in the previous round only if we are going to return
+        // "Queue is full", because the CASes check it implicitly: If the reader we have hit "from behind"
+        // was in the same (or even later) round, then it would mean that our origWriter is outdated,
+        // so either CAS would fail (good!).
+
         if
         :: ((readerRix == writerRix) && (readerIx == writerIx)) ->
         {
             if
-            :: ((readerRound + 1) == writerRound) ->
+            :: (isQueueExtensionPossible) ->
+            {
+                EXTEND_QUEUE(1);
+                goto go_forward_done;
+            }
+            :: else ->  // the Queue is now fully extended (but might not have been at the reading of origWriter)
+            // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
             {
                 if
-                :: (isQueueExtensionPossible) ->
-                {
-                    EXTEND_QUEUE(1);
-                    goto go_forward_done;
-                }
-                :: else ->  // the Queue is now fully extended (but might not have been at the reading of origWriter)
-                // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
+                :: ((readerRound + 1) == writerRound) ->
                 {
                     if
                     :: (recheckFromFullyExtended) ->  // we have already re-checked from here, i.e. from the fully extended state
@@ -339,9 +345,9 @@ start_anew : skip;
                     }
                     fi
                 }
+                :: else;
                 fi
             }
-            :: else;
             fi
         }
         :: else;
@@ -364,19 +370,13 @@ start_anew : skip;
             :: ((readerRix == testNextWriterRix) && (readerIx == testNextWriterIx)) ->  // if we would hit the reader
             {
                 if
-                :: ((readerRound + 1) == writerRound) ->
+                :: (isQueueExtensionPossible) ->
                 {
-                    if
-                    :: (isQueueExtensionPossible) ->
-                    {
-                        EXTEND_QUEUE(2);
-                    }
-                    :: else;
-                    fi
-                    break;
+                    EXTEND_QUEUE(2);
                 }
                 :: else;
                 fi
+                break;
             }
             :: else;
             fi
