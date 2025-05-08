@@ -4,11 +4,11 @@
  *
  * Promela model of the BlockingMultiArrayQueue for Spin.
  *
- * An exhaustive verification with more than 4 concurrent writers
- * plus 4 concurrent readers reaches feasibility limits and
+ * An exhaustive verification with more than 14 writers
+ * plus 14 readers reaches feasibility limits and
  * requires bitstate hashing (-DBITSTATE).
  *
- * Control the number of concurrent processes by editing
+ * Control the number of processes by editing
  * WRITERS and READERS below.
  *
  * Recommend to always set a memory limit, e.g.
@@ -18,7 +18,7 @@
  *    ./pan
  *
  * A random simulation with Spin, on the contrary,
- * can have a much higher number of concurrent processes:
+ * can have a much higher number of processes:
  *
  *    spin BlockingMultiArrayQueue.pml
  *
@@ -35,12 +35,12 @@
 // Hint: For construction of the pre-fill scenario it is helpful to use the Interactive Simulator:
 // https://MultiArrayQueue.github.io/Simulator_MultiArrayQueue.html
 
-#define PREFILL_STEPS 0
+#define PREFILL_STEPS 5
 
 int prefill[5] = { 1, 0, 1, 1, 1 }  // 1 = enqueue, 0 = dequeue
 
-#define WRITERS 4
-#define READERS 4
+#define WRITERS 14
+#define READERS 14
 
 int cntEnqueued = 0;
 int cntEnqueueFull = 0;
@@ -53,13 +53,13 @@ int cntDequeueEmpty = 0;
  *********************************************/
 
 #define FIRST_ARRAY_SIZE 1
-#define CNT_ALLOWED_EXTENSIONS 4
+#define CNT_ALLOWED_EXTENSIONS 2
 
 // MAX_ARRAY_SIZE = FIRST_ARRAY_SIZE * (2 ^ CNT_ALLOWED_EXTENSIONS)
-#define MAX_ARRAY_SIZE 16
+#define MAX_ARRAY_SIZE 4
 
 // MAXIMUM_CAPACITY = SUM( SIZES OF ALL ARRAYS ) - 1
-#define MAXIMUM_CAPACITY (1+2+4+8+16-1)
+#define MAXIMUM_CAPACITY (1+2+4-1)
 
 typedef array {
     int element[MAX_ARRAY_SIZE];  // under-utilized except of the last array
@@ -100,11 +100,11 @@ proctype enqueue()
 
     d_step  // the whole process is one big d_step due to the lock
     {
-        writerRix   = writerPositionRix;  // read writer position
+        writerRix   = writerPositionRix;  // read the writer position
         writerIx    = writerPositionIx;
         assert(writerIx < (FIRST_ARRAY_SIZE << writerRix));
 
-        readerRix   = readerPositionRix;  // read reader position
+        readerRix   = readerPositionRix;  // read the reader position
         readerIx    = readerPositionIx;
         assert(readerIx < (FIRST_ARRAY_SIZE << readerRix));
 
@@ -304,11 +304,11 @@ proctype dequeue()
 
     d_step  // the whole process is one big d_step due to the lock
     {
-        readerRix   = readerPositionRix;  // read reader position
+        readerRix   = readerPositionRix;  // read the reader position
         readerIx    = readerPositionIx;
         assert(readerIx < (FIRST_ARRAY_SIZE << readerRix));
 
-        writerRix   = writerPositionRix;  // read writer position
+        writerRix   = writerPositionRix;  // read the writer position
         writerIx    = writerPositionIx;
         assert(writerIx < (FIRST_ARRAY_SIZE << writerRix));
 
@@ -392,7 +392,7 @@ dequeue_done :
  *********************************************/
 init
 {
-    pid pids[WRITERS + READERS];
+    pid pids[1];
     int idx;
 
     // prefill scenario (enqueues/dequeues one after the other)
@@ -422,29 +422,44 @@ init
     int prefillCntDequeued     = cntDequeued;
     int prefillCntDequeueEmpty = cntDequeueEmpty;
 
-    // start all writer + reader processes concurrently
-    atomic
-    {
-        for (idx: 0 .. (WRITERS - 1))
-        {
-            pids[idx] = run enqueue();
-            printf("init: enqueue process %d\n", pids[idx]);
-        }
-        for (idx: WRITERS .. (WRITERS + READERS - 1))
-        {
-            pids[idx] = run dequeue();
-            printf("init: dequeue process %d\n", pids[idx]);
-        }
+    int cntFinishedEnqueues    = 0;
+    int cntFinishedDequeues    = 0;
 
-        printf("init: initialized all processes\n");
-    }
+    // start the writer + reader processes one-after-the-other (this is OK as this is a lock-based Queue)
+    //
+    // The verification will try all permutations (more precisely: permutations with repetition)
+    // of the writers and readers.
+    //
+    // Starting one-after-the-other creates a much smaller Spin state space than starting the processes concurrently,
+    // allowing for verification with many more writers and readers!
 
-    // join the concurrent processes
-    for (idx: 0 .. (WRITERS + READERS - 1))
+    do
+    :: (cntFinishedEnqueues < WRITERS) ->
     {
-        (_nr_pr <= pids[WRITERS + READERS - 1 - idx]);
-        printf("init: joined process %d\n", pids[WRITERS + READERS - 1 - idx]);
+        // start process
+        pids[0] = run enqueue();
+        printf("init: enqueue process %d\n", pids[0]);
+
+        // join process
+        (_nr_pr <= pids[0]);
+        printf("init: joined enqueue process %d\n", pids[0]);
+
+        cntFinishedEnqueues ++;
     }
+    :: (cntFinishedDequeues < READERS) ->
+    {
+        // start process
+        pids[0] = run dequeue();
+        printf("init: dequeue process %d\n", pids[0]);
+
+        // join process
+        (_nr_pr <= pids[0]);
+        printf("init: joined dequeue process %d\n", pids[0]);
+
+        cntFinishedDequeues ++;
+    }
+    :: else -> break;
+    od
 
     // balance of enqueues
     assert(WRITERS == (cntEnqueued + cntEnqueueFull - (prefillCntEnqueued + prefillCntEnqueueFull)));
@@ -452,8 +467,8 @@ init
     // balance of dequeues
     assert(READERS == (cntDequeued + cntDequeueEmpty - (prefillCntDequeued + prefillCntDequeueEmpty)));
 
-    // now: except when the concurrent phase resulted in an empty Queue (unlikely but possible),
-    // start reader processes one after the other to empty the Queue
+    // now: except when the "permutations phase" resulted in an empty Queue (unlikely but possible),
+    // start reader processes one-after-the-other to empty the Queue
     // and then check that the Queue is indeed empty
 
     int leftInQueue = cntEnqueued - cntDequeued;

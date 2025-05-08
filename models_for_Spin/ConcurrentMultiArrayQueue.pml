@@ -151,7 +151,7 @@ proctype enqueue(bool useStale)
 
 start_anew : skip;
 
-    d_step  // block if the extension-in-progress flag is set, then read writer position
+    d_step  // block if the extension-in-progress flag is set, then read the writer position
     {
         if
         :: (useStale && (-1 != staleWriterPositionRound)) ->
@@ -181,7 +181,7 @@ start_anew : skip;
 
     /*TLWACCH*/
 
-    d_step  // read reader position
+    d_step  // read the reader position
     {
         if
         :: (useStale && (-1 != staleReaderPositionRound)) ->
@@ -208,17 +208,23 @@ start_anew : skip;
         cntEnqueuedOnLPFull = cntEnqueued;
         cntDequeuedOnLPFull = cntDequeued;
 
-        useStale = false;  // stale state is used only initially
+        useStale = false;  // an eventual stale state is used only initially
     }
 
     /*TLWACCH*/
 
-    d_step  // read ringsMaxIndex + work on local variables + read diversions up to ringsMaxIndex
+    d_step  // read ringsMaxIndex into rixMax
     {
         rixMax = ringsMaxIndex;
         printf("PID %d has read ringsMaxIndex %d\n", _pid, rixMax);
 
         isQueueExtensionPossible = (rixMax < CNT_ALLOWED_EXTENSIONS);  // if there is room yet for the extension
+    }
+
+    /*TLWACCH*/
+
+    d_step  // work on local variables + read diversions up to rixMax + read rings[testNextWriterRix].element[testNextWriterIx]
+    {
         extendQueue = false;
         queueIsFull = false;
         queueIsFullCheck = false;
@@ -573,7 +579,7 @@ go_forward_done :  // prospective move forward is now done
 
         d_step
         {
-            ringsMaxIndex = rixMaxNew;  // increment ringsMaxIndex (makes the work on rings and diversions visible)
+            ringsMaxIndex = rixMaxNew;  // increment ringsMaxIndex (this first makes the work on rings and diversions visible)
             printf("PID %d incremented ringsMaxIndex to %d\n", _pid, rixMaxNew);
         }
 
@@ -654,7 +660,7 @@ proctype dequeue()
 
 start_anew : skip;
 
-    d_step  // read reader position
+    d_step  // read the reader position
     {
         origReaderRound = readerPositionRound;
         origReaderRix   = readerPositionRix;
@@ -667,7 +673,7 @@ start_anew : skip;
 
     /*TLWACCH*/
 
-    atomic  // read writer position
+    atomic  // read the writer position
     {
         writerRound = writerPositionRound;
         writerRix   = writerPositionRix;
@@ -802,6 +808,7 @@ go_forward_done :  // prospective move forward is now done
             // For example, if a reader reads from multiple Queues, it can read from the other Queues in the meantime
             // and come back to the would-be-waited-for Object in "this" Queue later!
 
+            cntDequeueEmpty ++;
             printf("PID %d returned Queue empty instead of waiting for the writer that is in spot A\n", _pid);
             goto dequeue_done;
         }
@@ -929,7 +936,7 @@ init
     assert(READERS == (cntDequeued + cntDequeueEmpty - (prefillCntDequeued + prefillCntDequeueEmpty)));
 
     // now: except when the concurrent phase resulted in an empty Queue (unlikely but possible),
-    // start reader processes one after the other to empty the Queue
+    // start reader processes one-after-the-other to empty the Queue
     // and then check that the Queue is indeed empty
 
     int leftInQueue = cntEnqueued - cntDequeued;
