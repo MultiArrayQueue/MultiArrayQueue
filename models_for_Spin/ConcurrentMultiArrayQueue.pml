@@ -323,8 +323,8 @@ start_anew : skip;
                 goto go_forward_done;
             }
             :: else ->  // the Queue is now fully extended (but might not have been at the reading of origWriter)
-            // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
             {
+                // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
                 if
                 :: ((readerRound + 1) == writerRound) ->
                 {
@@ -356,64 +356,53 @@ start_anew : skip;
             }
             fi
         }
-        :: else;
-        fi
-
-        // the forward-looking check to prevent the next writer from hitting the reader "from behind"
-        // on the return path of a diversion (see Paper for explanation)
-
-        int testNextWriterRix = writerRix;
-        int testNextWriterIx  = writerIx;
-
-        do
-        :: ((0 != testNextWriterRix) && ((FIRST_ARRAY_SIZE << testNextWriterRix) == (1 + testNextWriterIx))) ->
+        :: else ->
         {
-            tmpRix = testNextWriterRix;
-            testNextWriterRix = diversions[tmpRix - 1].rix;  // follow the diversion back
-            testNextWriterIx  = diversions[tmpRix - 1].ix;
+            // the forward-looking check to prevent the next writer from hitting the reader "from behind"
+            // on the return path of a diversion (see Paper for explanation)
 
             if
-            :: ((readerRix == testNextWriterRix) && (readerIx == testNextWriterIx)) ->  // if we would hit the reader
+            :: (isQueueExtensionPossible) ->
             {
-                if
-                :: (isQueueExtensionPossible) ->
-                {
-                    EXTEND_QUEUE(2);
-                }
-                :: else;
-                fi
-                break;
-            }
-            :: else;
-            fi
+                int testNextWriterRix = writerRix;
+                int testNextWriterIx  = writerIx;
 
-            if
-            :: (preferExtensionOverWaitForB) ->
-            {
-                // if preferExtensionOverWaitForB:
-                //
-                // additionally prevent the next writer from running into waiting for a reader that is in spot B
-                // on the return path of a diversion
-                if
-                :: (0 != rings[testNextWriterRix].element[testNextWriterIx]) ->
+                do
+                :: ((0 != testNextWriterRix) && ((FIRST_ARRAY_SIZE << testNextWriterRix) == (1 + testNextWriterIx))) ->
                 {
+                    tmpRix = testNextWriterRix;
+                    testNextWriterRix = diversions[tmpRix - 1].rix;  // follow the diversion back
+                    testNextWriterIx  = diversions[tmpRix - 1].ix;
+
                     if
-                    :: (isQueueExtensionPossible) ->
+                    :: ((readerRix == testNextWriterRix) && (readerIx == testNextWriterIx)) ->  // if we would hit the reader
                     {
-                        EXTEND_QUEUE(3);
+                        EXTEND_QUEUE(2);
+                        break;
                     }
                     :: else;
                     fi
-                    break;
+
+                    // if preferExtensionOverWaitForB:
+                    //
+                    // additionally prevent the next writer from running into waiting for a reader that is in spot B
+                    // on the return path of a diversion
+                    if
+                    :: ((preferExtensionOverWaitForB) && (0 != rings[testNextWriterRix].element[testNextWriterIx])) ->
+                    {
+                        EXTEND_QUEUE(3);
+                        break;
+                    }
+                    :: else;
+                    fi
                 }
-                :: else;
-                fi
+                :: else -> break;
+                od
             }
             :: else;
             fi
         }
-        :: else -> break;
-        od
+        fi
 
 go_forward_done :  // prospective move forward is now done
     }
@@ -560,9 +549,12 @@ go_forward_done :  // prospective move forward is now done
                     fi
                 }
 
-                // here the actual program code writes into the first array element of the new array,
-                // so we model it by preliminarily writing a wrong value that would throw the FIFO order assertion error
-                // if indeed dequeued (and update it to the correct value later on the linearization point)
+                // Here the actual program code writes into the first array element of the new array.
+                // But here in the model we need to write the incremented cntEnqueued, and this is first known
+                // on the linearization point (the concluding CAS of the extension operation (two TLWACCH-es below)).
+                // We solve this by preliminarily writing a wrong value that would throw the FIFO order assertion error
+                // if indeed dequeued (and we update it to the correct value later on the linearization point).
+
                 rings[rixMaxNew].element[0] = -1;
 
                 diversions[rixMaxNew - 1].rix = writerRix;  // the new diversion = the prospective writer position

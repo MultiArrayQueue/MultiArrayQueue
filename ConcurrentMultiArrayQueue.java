@@ -424,9 +424,9 @@ public class ConcurrentMultiArrayQueue<T>
                     }
                     else  // the Queue is now fully extended (but might not have been at the reading of origWriter)
                     {
+                        // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
                         if ((readerRound + 0x0000_0020_0000_0000L) == writerRound)
                         {
-                            // (the following checks are necessary because there is no CAS that would guard the "Queue is full" outcome)
                             if (recheckFromFullyExtended)  // we have already re-checked from here, i.e. from the fully extended state
                             {
                                 return false;  // Queue is full
@@ -452,44 +452,40 @@ public class ConcurrentMultiArrayQueue<T>
                         }
                     }
                 }
-
-                // the forward-looking check to prevent the next writer from hitting the reader "from behind"
-                // on the return path of a diversion (see Paper for explanation)
-
-                long testNextWriterPos = writerPos;
-                int testNextWriterRix = writerRix;
-                int testNextWriterIx = writerIx;
-
-                test_next:
-                for (; ((0 != testNextWriterRix) && ((firstArraySize << testNextWriterRix) == (1 + testNextWriterIx))) ;)
+                else if (isQueueExtensionPossible)
                 {
-                    testNextWriterPos = diversions[testNextWriterRix - 1];  // follow the diversion back
-                    if (readerPos == testNextWriterPos)  // if we would hit the reader
+                    // the forward-looking check to prevent the next writer from hitting the reader "from behind"
+                    // on the return path of a diversion (see Paper for explanation)
+
+                    long testNextWriterPos = writerPos;
+                    int testNextWriterRix = writerRix;
+                    int testNextWriterIx = writerIx;
+
+                    test_next:
+                    for (; ((0 != testNextWriterRix) && ((firstArraySize << testNextWriterRix) == (1 + testNextWriterIx))) ;)
                     {
-                        if (isQueueExtensionPossible)
+                        testNextWriterPos = diversions[testNextWriterRix - 1];  // follow the diversion back
+                        if (readerPos == testNextWriterPos)  // if we would hit the reader
                         {
                             extendQueue = true;
+                            break test_next;
                         }
-                        break test_next;
-                    }
-                    testNextWriterRix = (int) (testNextWriterPos & 0x0000_0000_0000_001FL);
-                    testNextWriterIx  = (int) (testNextWriterPos >>> 5);
+                        testNextWriterRix = (int) (testNextWriterPos & 0x0000_0000_0000_001FL);
+                        testNextWriterIx  = (int) (testNextWriterPos >>> 5);
 
-                    if (preferExtensionOverWaitForB)
-                    {
-                        // if preferExtensionOverWaitForB:
-                        //
-                        // additionally prevent the next writer from running into waiting for a reader that is in spot B
-                        // on the return path of a diversion
-
-                        Object[] testArray = rings[testNextWriterRix];
-                        if (null != testArray[testNextWriterIx])  // if the reader has not yet cleared the position
+                        if (preferExtensionOverWaitForB)
                         {
-                            if (isQueueExtensionPossible)
+                            // if preferExtensionOverWaitForB:
+                            //
+                            // additionally prevent the next writer from running into waiting for a reader that is in spot B
+                            // on the return path of a diversion
+
+                            Object[] testArray = rings[testNextWriterRix];
+                            if (null != testArray[testNextWriterIx])  // if the reader has not yet cleared the position
                             {
                                 extendQueue = true;
+                                break test_next;
                             }
-                            break test_next;
                         }
                     }
                 }

@@ -374,11 +374,11 @@ public class BlockingMultiArrayQueue<T>
                             queueIsFull = true;
                         }
                     }
-
-                    // the forward-looking check to prevent the next writer from hitting the reader "from behind"
-                    // on the return path of a diversion (see Paper for explanation)
                     else
                     {
+                        // the forward-looking check to prevent the next writer from hitting the reader "from behind"
+                        // on the return path of a diversion (see Paper for explanation)
+
                         long testNextWriterPos = writerPos;
                         int testNextWriterRix = writerRix;
                         int testNextWriterIx = writerIx;
