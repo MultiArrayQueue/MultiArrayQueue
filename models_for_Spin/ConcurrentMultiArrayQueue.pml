@@ -42,9 +42,18 @@
 // Hint: For construction of the pre-fill scenario it is helpful to use the Interactive Simulator:
 // https://MultiArrayQueue.github.io/Simulator_MultiArrayQueue.html
 
+// Idea: Run a series of 91 verifications (switch (ideally automatically) PREFILL_STEPS from 0 through 90)
+// to test starts from all positions from all fill levels (with FIRST_ARRAY_SIZE 1, CNT_ALLOWED_EXTENSIONS 2).
+
 #define PREFILL_STEPS 0
 
-int prefill[6] = { 1, 0, 1, 0, 1, 1 }  // 1 = enqueue, 0 = dequeue
+int prefill[90] = { 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0 }  // 1 = enqueue, 0 = dequeue
 
 #define WRITERS 2
 #define READERS 2
@@ -73,13 +82,13 @@ int staleReaderPositionIx = -1;
  *********************************************/
 
 #define FIRST_ARRAY_SIZE 1
-#define CNT_ALLOWED_EXTENSIONS 3
+#define CNT_ALLOWED_EXTENSIONS 2
 
 // MAX_ARRAY_SIZE = FIRST_ARRAY_SIZE * (2 ^ CNT_ALLOWED_EXTENSIONS)
-#define MAX_ARRAY_SIZE 8
+#define MAX_ARRAY_SIZE 4
 
 // MAXIMUM_CAPACITY = SUM( SIZES OF ALL ARRAYS ) - 1
-#define MAXIMUM_CAPACITY (1+2+4+8-1)
+#define MAXIMUM_CAPACITY (1+2+4-1)
 
 typedef array {
     int element[MAX_ARRAY_SIZE];  // under-utilized except of the last array
