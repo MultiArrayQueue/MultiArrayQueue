@@ -4,8 +4,8 @@
  *
  * Promela model of the BlockingMultiArrayQueue for Spin.
  *
- * An exhaustive verification with more than 14 writers
- * plus 14 readers reaches feasibility limits and
+ * An exhaustive verification with more than 18 writers
+ * plus 18 readers reaches feasibility limits and
  * requires bitstate hashing (-DBITSTATE).
  *
  * Control the number of processes by editing
@@ -35,68 +35,68 @@
 // Hint: For construction of the pre-fill scenario it is helpful to use the Interactive Simulator:
 // https://MultiArrayQueue.github.io/Simulator_MultiArrayQueue.html
 
-#define PREFILL_STEPS 5
+#define PREFILL_STEPS 0
 
-int prefill[5] = { 1, 0, 1, 1, 1 }  // 1 = enqueue, 0 = dequeue
+bit prefill[5] = { 1, 0, 1, 1, 1 }  // 1 = enqueue, 0 = dequeue
 
-#define WRITERS 14
-#define READERS 14
+#define WRITERS 18
+#define READERS 18
 
-int cntEnqueued = 0;
-int cntEnqueueFull = 0;
+short cntEnqueued = 0;
+short cntEnqueueFull = 0;
 
-int cntDequeued = 0;
-int cntDequeueEmpty = 0;
+short cntDequeued = 0;
+short cntDequeueEmpty = 0;
 
 /*********************************************
  private data of the BlockingMultiArrayQueue
  *********************************************/
 
 #define FIRST_ARRAY_SIZE 1
-#define CNT_ALLOWED_EXTENSIONS 2
+#define CNT_ALLOWED_EXTENSIONS 3
 
 // MAX_ARRAY_SIZE = FIRST_ARRAY_SIZE * (2 ^ CNT_ALLOWED_EXTENSIONS)
-#define MAX_ARRAY_SIZE 4
+#define MAX_ARRAY_SIZE 8
 
 // MAXIMUM_CAPACITY = SUM( SIZES OF ALL ARRAYS ) - 1
-#define MAXIMUM_CAPACITY (1+2+4-1)
+#define MAXIMUM_CAPACITY (1+2+4+8-1)
 
 typedef array {
-    int element[MAX_ARRAY_SIZE];  // under-utilized except of the last array
+    short element[MAX_ARRAY_SIZE];  // under-utilized except of the last array
 }
 
 array rings[1 + CNT_ALLOWED_EXTENSIONS];
 
-int ringsMaxIndex = 0;
+byte ringsMaxIndex = 0;
 
 typedef diversion {
-    int rix = 0;
-    int ix = 0;
+    byte rix = 0;
+    short ix = 0;
 }
 
 diversion diversions[1 + CNT_ALLOWED_EXTENSIONS];  // plus one to avoid an error when testing with CNT_ALLOWED_EXTENSIONS == 0
 
-int  writerPositionRix = 0;
-int  writerPositionIx = 0;
+byte  writerPositionRix = 0;
+short writerPositionIx = 0;
 
-int  readerPositionRix = 0;
-int  readerPositionIx = 0;
+byte  readerPositionRix = 0;
+short readerPositionIx = 0;
 
 /*********************************************
  enqueue process
  *********************************************/
 proctype enqueue()
 {
-    int  writerRix;  // writer prospective
-    int  writerIx;
-    int  readerRix;  // reader
-    int  readerIx;
-    int  rixMax;
-    bool isQueueExtensionPossible;
-    bool extendQueue;
-    bool queueIsFull;
-    int  rixMaxNew;
-    int  tmpRix;
+    byte  writerRix;  // writer prospective
+    short writerIx;
+    byte  readerRix;  // reader
+    short readerIx;
+    byte  rixMax;
+    bool  isQueueExtensionPossible;
+    bool  extendQueue;
+    bool  queueIsFull;
+    byte  rixMaxNew;
+    byte  tmpRix;
 
     d_step  // the whole process is one big d_step due to the lock
     {
@@ -204,8 +204,8 @@ proctype enqueue()
             // the forward-looking check to prevent the next writer from hitting the reader "from behind"
             // on the return path of a diversion (see Paper for explanation)
 
-            int testNextWriterRix = writerRix;
-            int testNextWriterIx  = writerIx;
+            byte  testNextWriterRix = writerRix;
+            short testNextWriterIx  = writerIx;
 
             do
             :: ((0 != testNextWriterRix) && ((FIRST_ARRAY_SIZE << testNextWriterRix) == (1 + testNextWriterIx))) ->
@@ -281,7 +281,7 @@ go_forward_done :  // prospective move forward is now done
 
             // increment cntEnqueued and enqueue it
             cntEnqueued ++;
-            int valueBefore = rings[writerRix].element[writerIx];
+            short valueBefore = rings[writerRix].element[writerIx];
             rings[writerRix].element[writerIx] = cntEnqueued;
             printf("PID %d enqueued %d in rings[%d][%d]\n", _pid, cntEnqueued, writerRix, writerIx);
             assert(0 == valueBefore);
@@ -295,12 +295,12 @@ go_forward_done :  // prospective move forward is now done
  *********************************************/
 proctype dequeue()
 {
-    int  readerRix;  // reader prospective
-    int  readerIx;
-    int  writerRix;  // writer
-    int  writerIx;
-    int  rixMax;
-    int  tmpRix;
+    byte  readerRix;  // reader prospective
+    short readerIx;
+    byte  writerRix;  // writer
+    short writerIx;
+    byte  rixMax;
+    byte  tmpRix;
 
     d_step  // the whole process is one big d_step due to the lock
     {
@@ -378,7 +378,7 @@ go_forward_done :  // prospective move forward is now done
 
         // increment cntDequeued, dequeue value and compare
         cntDequeued ++;
-        int valueDequeued = rings[readerRix].element[readerIx];
+        short valueDequeued = rings[readerRix].element[readerIx];
         rings[readerRix].element[readerIx] = 0;  // clear the reader position
         printf("PID %d dequeued %d in rings[%d][%d]\n", _pid, valueDequeued, readerRix, readerIx);
         assert(cntDequeued == valueDequeued);  // this verifies the correct FIFO order
@@ -393,7 +393,7 @@ dequeue_done :
 init
 {
     pid pids[1];
-    int idx;
+    short idx;
 
     // prefill scenario (enqueues/dequeues one after the other)
     for (idx: 0 .. PREFILL_STEPS - 1)
@@ -417,13 +417,13 @@ init
         printf("init: joined pre-fill process %d\n", pids[0]);
     }
 
-    int prefillCntEnqueued     = cntEnqueued;
-    int prefillCntEnqueueFull  = cntEnqueueFull;
-    int prefillCntDequeued     = cntDequeued;
-    int prefillCntDequeueEmpty = cntDequeueEmpty;
+    short prefillCntEnqueued     = cntEnqueued;
+    short prefillCntEnqueueFull  = cntEnqueueFull;
+    short prefillCntDequeued     = cntDequeued;
+    short prefillCntDequeueEmpty = cntDequeueEmpty;
 
-    int cntFinishedEnqueues    = 0;
-    int cntFinishedDequeues    = 0;
+    short cntFinishedEnqueues    = 0;
+    short cntFinishedDequeues    = 0;
 
     // start the writer + reader processes one-after-the-other (this is OK as this is a lock-based Queue)
     //
@@ -471,7 +471,7 @@ init
     // start reader processes one-after-the-other to empty the Queue
     // and then check that the Queue is indeed empty
 
-    int leftInQueue = cntEnqueued - cntDequeued;
+    short leftInQueue = cntEnqueued - cntDequeued;
     printf("init: left in the Queue %d\n", leftInQueue);
 
     for (idx: 0 .. (leftInQueue - 1))
@@ -489,10 +489,10 @@ init
     assert(cntEnqueued == cntDequeued);
     assert((writerPositionRix == readerPositionRix) && (writerPositionIx == readerPositionIx));
 
-    int tmpRix;
+    byte tmpRix;
     for (tmpRix: 0 .. CNT_ALLOWED_EXTENSIONS)
     {
-        int tmpIx;
+        short tmpIx;
         for (tmpIx: 0 .. (MAX_ARRAY_SIZE - 1))
         {
             assert(0 == rings[tmpRix].element[tmpIx]);

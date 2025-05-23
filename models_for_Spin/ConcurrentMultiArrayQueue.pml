@@ -47,8 +47,7 @@
 
 #define PREFILL_STEPS 0
 
-int prefill[90] = { 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
-                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+bit prefill[90] = { 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                     1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                     1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                     1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
@@ -58,24 +57,24 @@ int prefill[90] = { 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
 #define WRITERS 2
 #define READERS 2
 
-int cntEnqueued = 0;
-int cntEnqueueFull = 0;
+short cntEnqueued = 0;
+short cntEnqueueFull = 0;
 
-int cntDequeued = 0;
-int cntDequeueEmpty = 0;
+short cntDequeued = 0;
+short cntDequeueEmpty = 0;
 
 // this can be used to remember a "stale" state from after the given pre-fill step
 // and let the concurrent writers start with this stale writerPosition and readerPosition
 
 #define STALE_DATA_STEP -1
 
-int staleWriterPositionRound = -1;
-int staleWriterPositionRix = -1;
-int staleWriterPositionIx = -1;
+short staleWriterPositionRound = -1;
+byte  staleWriterPositionRix = 0;
+short staleWriterPositionIx = 0;
 
-int staleReaderPositionRound = -1;
-int staleReaderPositionRix = -1;
-int staleReaderPositionIx = -1;
+short staleReaderPositionRound = -1;
+byte  staleReaderPositionRix = 0;
+short staleReaderPositionIx = 0;
 
 /*********************************************
  private data of the ConcurrentMultiArrayQueue
@@ -91,31 +90,31 @@ int staleReaderPositionIx = -1;
 #define MAXIMUM_CAPACITY (1+2+4-1)
 
 typedef array {
-    int element[MAX_ARRAY_SIZE];  // under-utilized except of the last array
+    short element[MAX_ARRAY_SIZE];  // under-utilized except of the last array
 }
 
 array rings[1 + CNT_ALLOWED_EXTENSIONS];
 
-int ringsMaxIndex = 0;
+byte ringsMaxIndex = 0;
 
 typedef diversion {
-    int rix = 0;
-    int ix = 0;
+    byte rix = 0;
+    short ix = 0;
 }
 
 diversion diversions[1 + CNT_ALLOWED_EXTENSIONS];  // plus one to avoid an error when testing with CNT_ALLOWED_EXTENSIONS == 0
 
-int  writerPositionRound = 0;
-bool writerPositionFlag = false;
-int  writerPositionRix = 0;
-int  writerPositionIx = 0;
+short writerPositionRound = 0;
+bool  writerPositionFlag = false;
+byte  writerPositionRix = 0;
+short writerPositionIx = 0;
 
-int  readerPositionRound = 0;
-int  readerPositionRix = 0;
-int  readerPositionIx = 0;
+short readerPositionRound = 0;
+byte  readerPositionRix = 0;
+short readerPositionIx = 0;
 
-bool preferExtensionOverWaitForB = true;
-bool preferReturnEmptyOverWaitForA = false;
+#define PREFER_EXTENSION_OVER_WAIT_FOR_B      true
+#define PREFER_RETURN_EMPTY_OVER_WAIT_FOR_A   false
 
 /*********************************************
  enqueue process
@@ -136,27 +135,27 @@ inline QUEUE_IS_FULL(spot)
 
 proctype enqueue(bool useStale)
 {
-    int  origWriterRound;  // writer original
-    bool origWriterFlag;
-    int  origWriterRix;
-    int  origWriterIx;
-    int  writerRound;  // writer prospective
-    int  writerRix;
-    int  writerIx;
-    int  readerRound;  // reader
-    int  readerRix;
-    int  readerIx;
-    int  cntEnqueuedOnLPFull;
-    int  cntDequeuedOnLPFull;
-    int  rixMax;
-    bool isQueueExtensionPossible;
-    bool extendQueue;
-    bool queueIsFull;
-    bool queueIsFullCheck;
-    bool recheckFromFullyExtended = false;
-    int  rixMaxNew;
-    int  valueToEnqueue;
-    int  tmpRix;
+    short origWriterRound;  // writer original
+    bool  origWriterFlag;
+    byte  origWriterRix;
+    short origWriterIx;
+    short writerRound;  // writer prospective
+    byte  writerRix;
+    short writerIx;
+    short readerRound;  // reader
+    byte  readerRix;
+    short readerIx;
+    short cntEnqueuedOnLPFull;
+    short cntDequeuedOnLPFull;
+    byte  rixMax;
+    bool  isQueueExtensionPossible;
+    bool  extendQueue;
+    bool  queueIsFull;
+    bool  queueIsFullCheck;
+    bool  recheckFromFullyExtended = false;
+    byte  rixMaxNew;
+    short valueToEnqueue;
+    byte  tmpRix;
 
 start_anew : skip;
 
@@ -169,8 +168,7 @@ start_anew : skip;
             origWriterFlag  = false;
             origWriterRix   = staleWriterPositionRix;
             origWriterIx    = staleWriterPositionIx;
-            printf("PID %d starts with stale writerPosition (%d,%d,%d)\n",
-            _pid, origWriterRound, origWriterRix, origWriterIx);
+            printf("PID %d (enqueue) starts with stale writerPosition (%d,%d,%d)\n", _pid, origWriterRound, origWriterRix, origWriterIx);
         }
         :: (( !(useStale && (-1 != staleWriterPositionRound)) ) && (! writerPositionFlag)) ->
         {
@@ -178,14 +176,14 @@ start_anew : skip;
             origWriterFlag  = writerPositionFlag;
             origWriterRix   = writerPositionRix;
             origWriterIx    = writerPositionIx;
-            printf("PID %d has read writerPosition (%d,%d,%d)\n",
-            _pid, origWriterRound, origWriterRix, origWriterIx);
+            printf("PID %d (enqueue) has read writerPosition (%d,%d,%d)\n", _pid, origWriterRound, origWriterRix, origWriterIx);
         }
         fi
         writerRound = origWriterRound;
         writerRix   = origWriterRix;
         writerIx    = origWriterIx;
         assert(writerIx < (FIRST_ARRAY_SIZE << writerRix));
+        assert(!origWriterFlag);
     }
 
     /*TLWACCH*/
@@ -198,16 +196,14 @@ start_anew : skip;
             readerRound = staleReaderPositionRound;
             readerRix   = staleReaderPositionRix;
             readerIx    = staleReaderPositionIx;
-            printf("PID %d starts with stale readerPosition (%d,%d,%d)\n",
-            _pid, readerRound, readerRix, readerIx);
+            printf("PID %d (enqueue) starts with stale readerPosition (%d,%d,%d)\n", _pid, readerRound, readerRix, readerIx);
         }
         :: else ->
         {
             readerRound = readerPositionRound;
             readerRix   = readerPositionRix;
             readerIx    = readerPositionIx;
-            printf("PID %d has read readerPosition (%d,%d,%d)\n",
-            _pid, readerRound, readerRix, readerIx);
+            printf("PID %d (enqueue) has read readerPosition (%d,%d,%d)\n", _pid, readerRound, readerRix, readerIx);
         }
         fi
         assert(readerIx < (FIRST_ARRAY_SIZE << readerRix));
@@ -225,7 +221,7 @@ start_anew : skip;
     d_step  // read ringsMaxIndex into rixMax
     {
         rixMax = ringsMaxIndex;
-        printf("PID %d has read ringsMaxIndex %d\n", _pid, rixMax);
+        printf("PID %d (enqueue) has read ringsMaxIndex %d\n", _pid, rixMax);
 
         isQueueExtensionPossible = (rixMax < CNT_ALLOWED_EXTENSIONS);  // if there is room yet for the extension
     }
@@ -373,8 +369,8 @@ start_anew : skip;
             if
             :: (isQueueExtensionPossible) ->
             {
-                int testNextWriterRix = writerRix;
-                int testNextWriterIx  = writerIx;
+                byte  testNextWriterRix = writerRix;
+                short testNextWriterIx  = writerIx;
 
                 do
                 :: ((0 != testNextWriterRix) && ((FIRST_ARRAY_SIZE << testNextWriterRix) == (1 + testNextWriterIx))) ->
@@ -392,12 +388,12 @@ start_anew : skip;
                     :: else;
                     fi
 
-                    // if preferExtensionOverWaitForB:
+                    // if PREFER_EXTENSION_OVER_WAIT_FOR_B:
                     //
                     // additionally prevent the next writer from running into waiting for a reader that is in spot B
                     // on the return path of a diversion
                     if
-                    :: ((preferExtensionOverWaitForB) && (0 != rings[testNextWriterRix].element[testNextWriterIx])) ->
+                    :: (PREFER_EXTENSION_OVER_WAIT_FOR_B && (0 != rings[testNextWriterRix].element[testNextWriterIx])) ->
                     {
                         EXTEND_QUEUE(3);
                         break;
@@ -464,10 +460,10 @@ go_forward_done :  // prospective move forward is now done
              && (origWriterRix == writerPositionRix)
              && (origWriterIx == writerPositionIx)
              && (0 != rings[writerRix].element[writerIx])
-             && preferExtensionOverWaitForB
+             && PREFER_EXTENSION_OVER_WAIT_FOR_B
              && isQueueExtensionPossible) ->
             {
-                // preferExtensionOverWaitForB:
+                // PREFER_EXTENSION_OVER_WAIT_FOR_B:
                 // (the other part of this functionality is in the forward-looking check)
                 //
                 // What we are doing here is to avoid the waiting by extending the Queue instead.
@@ -538,13 +534,29 @@ go_forward_done :  // prospective move forward is now done
 
                 rixMaxNew = 1 + rixMax;
 
+                // check the rounds in a successful CAS:
+                // under PREFER_EXTENSION_OVER_WAIT_FOR_B it may happen that a reader in the previous round has not yet cleared its position
+                // and thus triggered the extension + another (later) reader has already dequeued in the same round
+                if
+                :: (PREFER_EXTENSION_OVER_WAIT_FOR_B) ->
+                {
+                    assert(((1 + readerRound) == writerRound) || (readerRound == writerRound));
+                }
+                :: else ->  // otherwise the extension must have been triggered by hitting a reader in the previous round
+                {
+                    assert((1 + readerRound) == writerRound);
+                }
+                fi
+
+                // a concurrent change of ringsMaxIndex could not go unnoticed (the CAS would fail but here it succeeded)
                 assert(rixMax == ringsMaxIndex);
+
                 assert(rixMaxNew <= CNT_ALLOWED_EXTENSIONS);
                 assert(0 == rings[rixMaxNew].element[0]);
 
                 // impossible for writerPos to be already in the diversions array, but better check ...
                 //
-                // for preferExtensionOverWaitForB:
+                // for PREFER_EXTENSION_OVER_WAIT_FOR_B:
                 // this check would also detect a scenario where we would erroneously try to extend the Queue
                 // on the return path of a diversion to avoid waiting for a reader that is in spot B there
                 // (also the scenario for which the forward-looking check is there too to prevent)
@@ -580,6 +592,9 @@ go_forward_done :  // prospective move forward is now done
 
         d_step
         {
+            // a concurrent change of ringsMaxIndex could not go unnoticed (the CAS would fail but here it succeeded)
+            assert(rixMax == ringsMaxIndex);
+
             ringsMaxIndex = rixMaxNew;  // increment ringsMaxIndex (this first makes the work on rings and diversions visible)
             printf("PID %d incremented ringsMaxIndex to %d\n", _pid, rixMaxNew);
         }
@@ -588,6 +603,9 @@ go_forward_done :  // prospective move forward is now done
 
         d_step  // concluding CAS of the extension operation
         {
+            // a concurrent change of ringsMaxIndex could not go unnoticed (the CAS would fail but here it succeeded)
+            assert(rixMaxNew == ringsMaxIndex);
+
             // here is the linearization point, so increment cntEnqueued and write it to the array
             cntEnqueued ++;
             rings[rixMaxNew].element[0] = cntEnqueued;  // update to correct value the first array element of the new array
@@ -610,6 +628,29 @@ go_forward_done :  // prospective move forward is now done
              && (origWriterRix == writerPositionRix)
              && (origWriterIx == writerPositionIx)) ->
             {
+                // check the rounds in a successful CAS
+                if
+                :: ((readerRix == writerRix) && (readerIx < writerIx)) ->
+                {
+                    assert(readerRound == writerRound);
+                }
+                :: ((readerRix == writerRix) && (readerIx == writerIx)) ->
+                {
+                    assert(false);
+                }
+                :: ((readerRix == writerRix) && (writerIx < readerIx)) ->
+                {
+                    assert((1 + readerRound) == writerRound);
+                }
+                :: else ->  // here a more precise check would require a traversal over the structure
+                {
+                    assert(((1 + readerRound) == writerRound) || (readerRound == writerRound));
+                }
+                fi
+
+                // a concurrent change of ringsMaxIndex could not go unnoticed (the CAS would fail but here it succeeded)
+                assert(rixMax == ringsMaxIndex);
+
                 writerPositionRound = writerRound;  // CAS write part
                 writerPositionFlag = false;
                 writerPositionRix = writerRix;
@@ -646,18 +687,18 @@ go_forward_done :  // prospective move forward is now done
  *********************************************/
 proctype dequeue()
 {
-    int  origReaderRound;  // reader original
-    int  origReaderRix;
-    int  origReaderIx;
-    int  readerRound;  // reader prospective
-    int  readerRix;
-    int  readerIx;
-    int  writerRound;  // writer
-    int  writerRix;
-    int  writerIx;
-    int  rixMax;
-    int  valueDequeued;
-    int  tmpRix;
+    short origReaderRound;  // reader original
+    byte  origReaderRix;
+    short origReaderIx;
+    short readerRound;  // reader prospective
+    byte  readerRix;
+    short readerIx;
+    short writerRound;  // writer
+    byte  writerRix;
+    short writerIx;
+    byte  rixMax;
+    short valueDequeued;
+    byte  tmpRix;
 
 start_anew : skip;
 
@@ -666,6 +707,7 @@ start_anew : skip;
         origReaderRound = readerPositionRound;
         origReaderRix   = readerPositionRix;
         origReaderIx    = readerPositionIx;
+        printf("PID %d (dequeue) has read readerPosition (%d,%d,%d)\n", _pid, origReaderRound, origReaderRix, origReaderIx);
         readerRound = origReaderRound;
         readerRix   = origReaderRix;
         readerIx    = origReaderIx;
@@ -679,6 +721,7 @@ start_anew : skip;
         writerRound = writerPositionRound;
         writerRix   = writerPositionRix;
         writerIx    = writerPositionIx;
+        printf("PID %d (dequeue) has read writerPosition (%d,%d,%d)\n", _pid, writerRound, writerRix, writerIx);
         assert(writerIx < (FIRST_ARRAY_SIZE << writerRix));
         assert(readerRound <= writerRound);
 
@@ -734,6 +777,7 @@ start_anew : skip;
         // that starts at the diversion to 1 + readerRix suffices (i.e. a short linear search)
 
         rixMax = ringsMaxIndex;
+        printf("PID %d (dequeue) has read ringsMaxIndex %d\n", _pid, rixMax);
 
         for (tmpRix : (1 + readerRix) .. rixMax)
         {
@@ -787,9 +831,9 @@ go_forward_done :  // prospective move forward is now done
          && (origReaderRix == readerPositionRix)
          && (origReaderIx == readerPositionIx)
          && (0 == rings[readerRix].element[readerIx])
-         && (preferReturnEmptyOverWaitForA)) ->
+         && PREFER_RETURN_EMPTY_OVER_WAIT_FOR_A) ->
         {
-            // preferReturnEmptyOverWaitForA:
+            // PREFER_RETURN_EMPTY_OVER_WAIT_FOR_A:
             //
             // What we are doing here is to avoid the waiting by returning "Queue is empty" instead.
             //
@@ -830,6 +874,22 @@ go_forward_done :  // prospective move forward is now done
             readerPositionRix = readerRix;
             readerPositionIx = readerIx;
 
+            // check the rounds in a successful CAS
+            if
+            :: ((writerRix == readerRix) && (readerIx <= writerIx)) ->
+            {
+                assert(writerRound == readerRound);
+            }
+            :: ((writerRix == readerRix) && (writerIx < readerIx)) ->
+            {
+                assert(writerRound == (1 + readerRound));
+            }
+            :: else ->  // here a more precise check would require a traversal over the structure
+            {
+                assert((writerRound == (1 + readerRound)) || (writerRound == readerRound));
+            }
+            fi
+
             // here is the linearization point, so increment cntDequeued and compare it with valueDequeued
             cntDequeued ++;
             printf("PID %d dequeued %d in rings[%d][%d]\n", _pid, valueDequeued, readerRix, readerIx);
@@ -862,7 +922,7 @@ dequeue_done :
 init
 {
     pid pids[WRITERS + READERS];
-    int idx;
+    short idx;
 
     // prefill scenario (enqueues/dequeues one after the other)
     for (idx: 0 .. PREFILL_STEPS - 1)
@@ -901,10 +961,10 @@ init
         fi
     }
 
-    int prefillCntEnqueued     = cntEnqueued;
-    int prefillCntEnqueueFull  = cntEnqueueFull;
-    int prefillCntDequeued     = cntDequeued;
-    int prefillCntDequeueEmpty = cntDequeueEmpty;
+    short prefillCntEnqueued     = cntEnqueued;
+    short prefillCntEnqueueFull  = cntEnqueueFull;
+    short prefillCntDequeued     = cntDequeued;
+    short prefillCntDequeueEmpty = cntDequeueEmpty;
 
     // start all writer + reader processes concurrently
     atomic
@@ -940,7 +1000,7 @@ init
     // start reader processes one-after-the-other to empty the Queue
     // and then check that the Queue is indeed empty
 
-    int leftInQueue = cntEnqueued - cntDequeued;
+    short leftInQueue = cntEnqueued - cntDequeued;
     printf("init: left in the Queue %d\n", leftInQueue);
 
     for (idx: 0 .. (leftInQueue - 1))
@@ -958,10 +1018,10 @@ init
     assert(cntEnqueued == cntDequeued);
     assert((writerPositionRound == readerPositionRound) && (writerPositionRix == readerPositionRix) && (writerPositionIx == readerPositionIx));
 
-    int tmpRix;
+    byte tmpRix;
     for (tmpRix: 0 .. CNT_ALLOWED_EXTENSIONS)
     {
-        int tmpIx;
+        short tmpIx;
         for (tmpIx: 0 .. (MAX_ARRAY_SIZE - 1))
         {
             assert(0 == rings[tmpRix].element[tmpIx]);
