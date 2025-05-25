@@ -37,10 +37,16 @@
 
 #define PREFILL_STEPS 0
 
-bit prefill[5] = { 1, 0, 1, 1, 1 }  // 1 = enqueue, 0 = dequeue
+hidden byte prefill[5] = { 1, 0, 1, 1, 1 }  // 1 = enqueue, 0 = dequeue
 
 #define WRITERS 18
 #define READERS 18
+
+hidden short prefillCntEnqueued;
+hidden short prefillCntEnqueueFull;
+
+hidden short prefillCntDequeued;
+hidden short prefillCntDequeueEmpty;
 
 short cntEnqueued = 0;
 short cntEnqueueFull = 0;
@@ -87,19 +93,19 @@ short readerPositionIx = 0;
  *********************************************/
 proctype enqueue()
 {
-    byte  writerRix;  // writer prospective
-    short writerIx;
-    byte  readerRix;  // reader
-    short readerIx;
-    byte  rixMax;
-    bool  isQueueExtensionPossible;
-    bool  extendQueue;
-    bool  queueIsFull;
-    byte  rixMaxNew;
-    byte  tmpRix;
-
     d_step  // the whole process is one big d_step due to the lock
     {
+        byte  writerRix;  // writer prospective
+        short writerIx;
+        byte  readerRix;  // reader
+        short readerIx;
+        byte  rixMax;
+        bool  isQueueExtensionPossible;
+        bool  extendQueue;
+        bool  queueIsFull;
+        byte  rixMaxNew;
+        byte  tmpRix;
+
         writerRix   = writerPositionRix;  // read the writer position
         writerIx    = writerPositionIx;
         assert(writerIx < (FIRST_ARRAY_SIZE << writerRix));
@@ -295,15 +301,15 @@ go_forward_done :  // prospective move forward is now done
  *********************************************/
 proctype dequeue()
 {
-    byte  readerRix;  // reader prospective
-    short readerIx;
-    byte  writerRix;  // writer
-    short writerIx;
-    byte  rixMax;
-    byte  tmpRix;
-
     d_step  // the whole process is one big d_step due to the lock
     {
+        byte  readerRix;  // reader prospective
+        short readerIx;
+        byte  writerRix;  // writer
+        short writerIx;
+        byte  rixMax;
+        byte  tmpRix;
+
         readerRix   = readerPositionRix;  // read the reader position
         readerIx    = readerPositionIx;
         assert(readerIx < (FIRST_ARRAY_SIZE << readerRix));
@@ -417,10 +423,10 @@ init
         printf("init: joined pre-fill process %d\n", pids[0]);
     }
 
-    short prefillCntEnqueued     = cntEnqueued;
-    short prefillCntEnqueueFull  = cntEnqueueFull;
-    short prefillCntDequeued     = cntDequeued;
-    short prefillCntDequeueEmpty = cntDequeueEmpty;
+    prefillCntEnqueued     = cntEnqueued;
+    prefillCntEnqueueFull  = cntEnqueueFull;
+    prefillCntDequeued     = cntDequeued;
+    prefillCntDequeueEmpty = cntDequeueEmpty;
 
     short cntFinishedEnqueues    = 0;
     short cntFinishedDequeues    = 0;
@@ -431,7 +437,7 @@ init
     // of the writers and readers.
     //
     // Starting one-after-the-other creates a much smaller Spin state space than starting the processes concurrently,
-    // allowing for verification with many more writers and readers!
+    // allowing for verifications with many more writers and readers!
 
     do
     :: (cntFinishedEnqueues < WRITERS) ->

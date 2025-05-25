@@ -42,20 +42,27 @@
 // Hint: For construction of the pre-fill scenario it is helpful to use the Interactive Simulator:
 // https://MultiArrayQueue.github.io/Simulator_MultiArrayQueue.html
 
-// Idea: Run a series of 91 verifications (switch (ideally automatically) PREFILL_STEPS from 0 through 90)
+// Idea: Run a series of 87 verifications (switch (ideally automatically) PREFILL_STEPS from 0 through 86)
 // to test starts from all positions from all fill levels (with FIRST_ARRAY_SIZE 1, CNT_ALLOWED_EXTENSIONS 2).
 
 #define PREFILL_STEPS 0
 
-bit prefill[90] = { 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
-                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
-                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
-                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
-                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
-                    1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0 }  // 1 = enqueue, 0 = dequeue
+hidden byte prefill[86] = { 1,      0, 1, 0, 1, 0, 1,
+                            1, 0,   0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
+                            1,      0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
+                            1,      0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
+                            1,      0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
+                            1,      0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
+                            1,      0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1 }  // 1 = enqueue, 0 = dequeue
 
 #define WRITERS 2
 #define READERS 2
+
+hidden short prefillCntEnqueued;
+hidden short prefillCntEnqueueFull;
+
+hidden short prefillCntDequeued;
+hidden short prefillCntDequeueEmpty;
 
 short cntEnqueued = 0;
 short cntEnqueueFull = 0;
@@ -64,17 +71,17 @@ short cntDequeued = 0;
 short cntDequeueEmpty = 0;
 
 // this can be used to remember a "stale" state from after the given pre-fill step
-// and let the concurrent writers start with this stale writerPosition and readerPosition
+// and let the concurrent writers (but not the readers) start with this stale writerPosition and readerPosition
 
 #define STALE_DATA_STEP -1
 
-short staleWriterPositionRound = -1;
-byte  staleWriterPositionRix = 0;
-short staleWriterPositionIx = 0;
+hidden short staleWriterPositionRound = -1;
+hidden byte  staleWriterPositionRix = 0;
+hidden short staleWriterPositionIx = 0;
 
-short staleReaderPositionRound = -1;
-byte  staleReaderPositionRix = 0;
-short staleReaderPositionIx = 0;
+hidden short staleReaderPositionRound = -1;
+hidden byte  staleReaderPositionRix = 0;
+hidden short staleReaderPositionIx = 0;
 
 /*********************************************
  private data of the ConcurrentMultiArrayQueue
@@ -155,7 +162,6 @@ proctype enqueue(bool useStale)
     bool  recheckFromFullyExtended = false;
     byte  rixMaxNew;
     short valueToEnqueue;
-    byte  tmpRix;
 
 start_anew : skip;
 
@@ -233,6 +239,7 @@ start_anew : skip;
         extendQueue = false;
         queueIsFull = false;
         queueIsFullCheck = false;
+        byte tmpRix;
 
         writerIx ++;  // prospective move forward
 
@@ -392,6 +399,9 @@ start_anew : skip;
                     //
                     // additionally prevent the next writer from running into waiting for a reader that is in spot B
                     // on the return path of a diversion
+                    //
+                    // remark on modelling: there can be multiple reads of rings[testNextWriterRix].element[testNextWriterIx]
+                    // but we are in a single d_step. So here the model is not precise.
                     if
                     :: (PREFER_EXTENSION_OVER_WAIT_FOR_B && (0 != rings[testNextWriterRix].element[testNextWriterIx])) ->
                     {
@@ -561,6 +571,7 @@ go_forward_done :  // prospective move forward is now done
                 // on the return path of a diversion to avoid waiting for a reader that is in spot B there
                 // (also the scenario for which the forward-looking check is there too to prevent)
 
+                byte tmpRix;
                 for (tmpRix : 1 .. rixMax)
                 {
                     if
@@ -698,7 +709,6 @@ proctype dequeue()
     short writerIx;
     byte  rixMax;
     short valueDequeued;
-    byte  tmpRix;
 
 start_anew : skip;
 
@@ -743,6 +753,7 @@ start_anew : skip;
 
     d_step  // work on local variables + read ringsMaxIndex + read diversions up to ringsMaxIndex
     {
+        byte  tmpRix;
         readerIx ++;  // prospective move forward
 
         // if the prospective move goes "beyond" the end of rings[readerRix]
@@ -961,10 +972,10 @@ init
         fi
     }
 
-    short prefillCntEnqueued     = cntEnqueued;
-    short prefillCntEnqueueFull  = cntEnqueueFull;
-    short prefillCntDequeued     = cntDequeued;
-    short prefillCntDequeueEmpty = cntDequeueEmpty;
+    prefillCntEnqueued     = cntEnqueued;
+    prefillCntEnqueueFull  = cntEnqueueFull;
+    prefillCntDequeued     = cntDequeued;
+    prefillCntDequeueEmpty = cntDequeueEmpty;
 
     // start all writer + reader processes concurrently
     atomic
