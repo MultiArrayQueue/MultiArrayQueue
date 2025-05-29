@@ -279,7 +279,7 @@ public class BlockingMultiArrayQueue<T>
         try
         {
             long writerPos;
-            int rixMax = -1, writerRix, writerIx;
+            int rixMax, writerRix, writerIx;
             boolean extendQueue;
 
             start_anew:
@@ -288,6 +288,8 @@ public class BlockingMultiArrayQueue<T>
                 writerPos = writerPosition;
 
                 long readerPos = readerPosition;
+
+                rixMax = -1;  // reading of ringsMaxIndex is not always needed, but throw an ArrayIndexOutOfBounds in Queue extension if entered without
 
                 extendQueue = false;
                 boolean queueIsFull = false;
