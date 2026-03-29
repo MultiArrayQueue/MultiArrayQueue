@@ -27,6 +27,13 @@ Performance figures are in the Paper as well.
  * Do not send me Pull Requests - the code is small so I want to maintain it single-handedly.
  * Reviews, tests and comments are welcome.
 
+## Lock-Free Multi-Array Queue
+
+A truly Lock-Free Multi-Array Queue exists too, however implemented in a different technology than Java
+(because the 128-bit Compare-And-Swap (CAS) atomic instruction is not accessible from Java):
+
+[Lock-Free Multi-Array Queue](https://github.com/MultiArrayQueue/LockFreeMultiArrayQueue)
+
 ## License
 
 MIT License
