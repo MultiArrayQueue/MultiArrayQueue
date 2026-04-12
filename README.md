@@ -29,7 +29,7 @@ Performance figures are in the Paper as well.
 
 ## Lock-Free Multi-Array Queue
 
-A truly Lock-Free Multi-Array Queue exists too, however implemented in a different technology than Java
+A truly Lock-Free Multi-Array Queue has been developed in 2026, however implemented in a different technology than Java
 (because the 128-bit Compare-And-Swap (CAS) atomic instruction is not accessible from Java):
 
 [Lock-Free Multi-Array Queue](https://github.com/MultiArrayQueue/LockFreeMultiArrayQueue)
