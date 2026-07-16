@@ -30,9 +30,16 @@ Performance figures are in the Paper as well.
 ## Lock-Free Multi-Array Queue
 
 A truly Lock-Free Multi-Array Queue has been developed in 2026, however implemented in a different technology than Java
-(because the 128-bit Compare-And-Swap (CAS) atomic instruction is not accessible from Java):
+(because the needed 128-bit Compare-And-Swap (CAS) atomic instruction is not accessible from Java):
 
 [Lock-Free Multi-Array Queue](https://github.com/MultiArrayQueue/LockFreeMultiArrayQueue)
+
+## Wait-Free Multi-Array Queue
+
+On top of the Lock-Free Multi-Array Queue, a Wait-Free Multi-Array Queue has been developed later in 2026,
+currently only as a model without a "real" implementation:
+
+[Wait-Free Multi-Array Queue](https://github.com/MultiArrayQueue/WaitFreeMultiArrayQueue)
 
 ## License
 
